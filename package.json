@@ -1,0 +1,9 @@
+{
+  "name": "agente-ia-js",
+  "private": true,
+  "workspaces": ["front", "api", "agente"],
+  "scripts": {
+    "instalar": "npm i --workspaces",
+    "dev": "npm run dev -w api & npm run dev -w agente & npm run dev -w front"
+  }
+}
