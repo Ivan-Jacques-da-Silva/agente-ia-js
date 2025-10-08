@@ -40,13 +40,30 @@ app.get("/tarefas/:id", (req, res) => {
   res.json(t);
 });
 
-const AGENTE_URL = `http://localhost:${process.env.AGENTE_PORTA || 6060}`;
+let AGENTE_URL_CACHE = null;
+async function getAgenteUrl(){
+  if (AGENTE_URL_CACHE) return AGENTE_URL_CACHE;
+  const base = Number(process.env.AGENTE_PORTA || 6060);
+  for(let p=base; p<base+10; p++){
+    try{
+      const r = await fetch(`http://localhost:${p}/saude`);
+      if(r.ok){
+        AGENTE_URL_CACHE = `http://localhost:${p}`;
+        return AGENTE_URL_CACHE;
+      }
+    }catch{ /* tenta o próximo */ }
+  }
+  // fallback, ainda que possa falhar
+  AGENTE_URL_CACHE = `http://localhost:${base}`;
+  return AGENTE_URL_CACHE;
+}
 
 fila.on("executar", async (job) => {
   const t = tarefas.get(job.id);
   if (!t) return;
   t.estado = "em_execucao";
   try {
+    const AGENTE_URL = await getAgenteUrl();
     const r = await fetch(`${AGENTE_URL}/executar`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -61,6 +78,17 @@ fila.on("executar", async (job) => {
   }
 });
 
-const porta = Number(process.env.API_PORTA || 5050);
-app.listen(porta, () => console.log(`API na porta ${porta}`));
+function start(porta) {
+  const server = app.listen(porta, () => console.log(`API na porta ${porta}`));
+  server.on("error", (err) => {
+    if (err && err.code === "EADDRINUSE") {
+      console.log(`Porta ${porta} ocupada. Tentando ${porta + 1}...`);
+      start(porta + 1);
+    } else {
+      console.error("Falha ao subir API:", err);
+      process.exit(1);
+    }
+  });
+}
 
+start(Number(process.env.API_PORTA || 5050));

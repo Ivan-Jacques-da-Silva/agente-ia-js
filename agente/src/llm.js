@@ -38,3 +38,14 @@ Responda em JSON com chaves: objetivos, passos, criteriosAceite.`;
   }
 }
 
+export async function chat_simples(mensagem, contexto = ""){
+  const prompt = `${contexto ? `Contexto:\n${contexto}\n\n` : ""}Usuário: ${mensagem}\nAssistente:`;
+  const r = await fetch(`${OLLAMA_URL}/api/generate`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:LLM_MODEL,prompt,stream:false})
+  });
+  if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  return data?.response || "";
+}
