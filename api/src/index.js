@@ -1,11 +1,19 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import net from "node:net";
 import { nanoid } from "nanoid";
 import { FilaMemoria } from "./fila.js";
 
 const app = express();
-app.use(cors());
+// CORS permissivo (qualquer origem) e preflight
+app.use((req,res,next)=>{
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "*");
+  if(req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 app.use(express.json());
 
 const tarefas = new Map();
@@ -78,17 +86,64 @@ fila.on("executar", async (job) => {
   }
 });
 
-function start(porta) {
-  const server = app.listen(porta, () => console.log(`API na porta ${porta}`));
-  server.on("error", (err) => {
-    if (err && err.code === "EADDRINUSE") {
-      console.log(`Porta ${porta} ocupada. Tentando ${porta + 1}...`);
-      start(porta + 1);
-    } else {
-      console.error("Falha ao subir API:", err);
-      process.exit(1);
-    }
-  });
+async function findAvailablePort(start){
+  for(let p=start; p<start+50; p++){
+    const ok = await new Promise((resolve)=>{
+      const srv = net.createServer()
+        .once("error", ()=> resolve(false))
+        .once("listening", ()=> srv.close(()=> resolve(true)))
+        .listen(p, "0.0.0.0");
+    });
+    if(ok) return p;
+  }
+  throw new Error("Sem porta livre encontrada");
 }
 
-start(Number(process.env.API_PORTA || 5050));
+let server;
+async function start(){
+  const base = Number(process.env.API_PORTA || 5050);
+  const porta = await findAvailablePort(base);
+  server = app.listen(porta, () => console.log(`API na porta ${porta}`));
+}
+
+function graceful(){
+  if(server){
+    console.log("Encerrando API e liberando porta...");
+    try{ server.close(()=> process.exit(0)); }catch{ process.exit(0); }
+  } else {
+    process.exit(0);
+  }
+}
+process.on("SIGINT", graceful);
+process.on("SIGTERM", graceful);
+
+await start();
+
+// Proxy para o Agente: o front chama via API para evitar CORS com o Agente
+async function proxyAgente(req, res){
+  try{
+    const base = await getAgenteUrl();
+    const target = base + req.originalUrl.replace(/^\/agente/, "");
+    const init = {
+      method: req.method,
+      headers: { "Content-Type": req.get('content-type') || 'application/json' },
+    };
+    if(req.method !== 'GET' && req.method !== 'HEAD'){
+      init.body = req.rawBody || JSON.stringify(req.body||{});
+    }
+    const r = await fetch(target, init);
+    const text = await r.text();
+    res.set('Access-Control-Allow-Origin','*');
+    res.status(r.status);
+    const ct = r.headers.get('content-type') || '';
+    if(ct.includes('application/json')){ try{ return res.json(JSON.parse(text)); }catch{ /* fallthrough */ } }
+    return res.send(text);
+  }catch(e){
+    res.set('Access-Control-Allow-Origin','*');
+    res.status(500).json({ erro: String(e?.message||e) });
+  }
+}
+
+// Registra proxy antes e depois de start() para evitar condições de corrida
+app.use('/agente', express.json({limit:'5mb'}), proxyAgente);
+app.use('/agente', express.json({limit:'5mb'}), proxyAgente);

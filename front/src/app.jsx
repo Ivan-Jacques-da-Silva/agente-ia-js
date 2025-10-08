@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 
-const API_DEFAULT = import.meta.env.VITE_API_URL || "http://localhost:5050";
-const AGENTE_DEFAULT = import.meta.env.VITE_AGENT_URL || "http://localhost:6060";
+// Use proxies do Vite por padrão para evitar CORS e varredura de portas
+const API_DEFAULT = import.meta.env.VITE_API_URL || "/api";
+const AGENTE_DEFAULT = import.meta.env.VITE_AGENT_URL || "/agente";
 
 export default function App(){
   const [apiUrl,setApiUrl]=useState(API_DEFAULT);
@@ -47,45 +48,12 @@ export default function App(){
     return ()=>{ if(timerRef.current) clearInterval(timerRef.current); };
   },[id]);
 
-  useEffect(()=>{
-    // Detecta API em portas subsequentes se a padrão falhar
-    let cancelado=false;
-    (async()=>{
-      const base = (()=>{
-        try{ const u=new URL(apiUrl); return {host:u.hostname, port:Number(u.port||5050)};}catch{ return {host:"localhost",port:5050}; }
-      })();
-      for(let p=base.port; p<base.port+10 && !cancelado; p++){
-        try{
-          const url=`http://${base.host}:${p}/saude`;
-          const r=await fetch(url, { method:"GET" });
-          if(r.ok){ setApiUrl(`http://${base.host}:${p}`); break; }
-        }catch{ /* tenta próxima */ }
-      }
-    })();
-    return ()=>{ cancelado=true; };
-  },[]);
-
-  useEffect(()=>{
-    // Detecta Agente em portas subsequentes se a padrão falhar
-    let cancelado=false;
-    (async()=>{
-      const base = (()=>{
-        try{ const u=new URL(agenteUrl); return {host:u.hostname, port:Number(u.port||6060)};}catch{ return {host:"localhost",port:6060}; }
-      })();
-      for(let p=base.port; p<base.port+10 && !cancelado; p++){
-        try{
-          const url=`http://${base.host}:${p}/saude`;
-          const r=await fetch(url, { method:"GET" });
-          if(r.ok){ setAgenteUrl(`http://${base.host}:${p}`); break; }
-        }catch{ /* tenta próxima */ }
-      }
-    })();
-    return ()=>{ cancelado=true; };
-  },[]);
-
+  // Estados de edição de arquivos e chat
   const [arvore,setArvore]=useState([]);
   const [arquivoAtual,setArquivoAtual]=useState("");
   const [conteudo,setConteudo]=useState("");
+  const [original,setOriginal]=useState("");
+  const dirty = conteudo !== original;
   const [chat,setChat]=useState([]);
 
   async function abrir_repo(){
@@ -106,12 +74,12 @@ export default function App(){
   }
 
   async function abrir_arquivo(p){
-    try{ const r=await fetch(`${agenteUrl}/repo/file?path=${encodeURIComponent(p)}`); const t=await r.text(); setArquivoAtual(p); setConteudo(t);}catch(e){ setErro(String(e?.message||e)); }
+    try{ const r=await fetch(`${agenteUrl}/repo/file?path=${encodeURIComponent(p)}`); const t=await r.text(); setArquivoAtual(p); setConteudo(t); setOriginal(t);}catch(e){ setErro(String(e?.message||e)); }
   }
 
   async function salvar_arquivo(){
     if(!arquivoAtual) return;
-    try{ await fetch(`${agenteUrl}/repo/save`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:arquivoAtual,conteudo})}); await carregar_arvore(); }catch(e){ setErro(String(e?.message||e)); }
+    try{ await fetch(`${agenteUrl}/repo/save`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:arquivoAtual,conteudo})}); setOriginal(conteudo); await carregar_arvore(); }catch(e){ setErro(String(e?.message||e)); }
   }
 
   async function commit_push(){
@@ -153,8 +121,10 @@ export default function App(){
           <h2 style={{fontSize:16,margin:0}}>Repositório</h2>
           <input placeholder="URL do repositório" value={repo} onChange={e=>setRepo(e.target.value)} style={{padding:8,border:"1px solid #e5e7eb",borderRadius:6}}/>
           <input placeholder="Branch base (opcional)" value={branchBase} onChange={e=>setBranchBase(e.target.value)} style={{padding:8,border:"1px solid #e5e7eb",borderRadius:6}}/>
-          <button onClick={abrir_repo} style={{padding:"8px 10px",background:"#2563eb",color:"#fff",border:0,borderRadius:6}}>Abrir</button>
-          <button onClick={carregar_arvore} style={{padding:"8px 10px",background:"#0f172a",color:"#fff",border:0,borderRadius:6}}>Atualizar árvore</button>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={abrir_repo} style={{padding:"8px 10px",background:"#2563eb",color:"#fff",border:0,borderRadius:6}}>Abrir</button>
+            <button onClick={carregar_arvore} style={{padding:"8px 10px",background:"#0f172a",color:"#fff",border:0,borderRadius:6}}>Atualizar árvore</button>
+          </div>
           <div style={{height:1,background:"#e5e7eb"}}/>
           <div>
             <div style={{fontWeight:600,marginBottom:8}}>Arquivos</div>
@@ -177,7 +147,7 @@ export default function App(){
           <textarea value={conteudo} onChange={e=>setConteudo(e.target.value)} style={layout.editor} placeholder="Conteúdo do arquivo"/>
         </div>
         <div style={layout.actions}>
-          <button onClick={salvar_arquivo} style={{padding:"8px 12px",background:"#059669",color:"#fff",border:0,borderRadius:6}}>Salvar</button>
+          <button onClick={salvar_arquivo} disabled={!dirty} style={{padding:"8px 12px",background: dirty?"#2563eb":"#94a3b8",color:"#fff",border:0,borderRadius:6,opacity:dirty?1:0.6}}>Aplicar</button>
           <button onClick={commit_push} style={{padding:"8px 12px",background:"#334155",color:"#fff",border:0,borderRadius:6}}>Commit & Push</button>
         </div>
       </section>

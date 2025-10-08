@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -9,10 +10,12 @@ import { chat_simples } from "./llm.js";
 import { clonar_repositorio, criar_branch, commit_e_push } from "./ferramentas.js";
 
 const app = express();
+// CORS (qualquer origem) e preflight via pacote oficial
 app.use(cors());
+app.options('*', cors());
 app.use(express.json({limit:"5mb"}));
 
-app.get("/saude", (_req, res) => res.json({ ok: true }));
+app.get("/saude", (_req, res) => { res.set("Access-Control-Allow-Origin","*"); res.json({ ok: true }); });
 
 app.post("/executar", async (req, res) => {
   try {
@@ -23,20 +26,38 @@ app.post("/executar", async (req, res) => {
   }
 });
 
-function start(porta) {
-  const server = app.listen(porta, () => console.log(`Agente na porta ${porta}`));
-  server.on("error", (err) => {
-    if (err && err.code === "EADDRINUSE") {
-      console.log(`Porta ${porta} ocupada. Tentando ${porta + 1}...`);
-      start(porta + 1);
-    } else {
-      console.error("Falha ao subir Agente:", err);
-      process.exit(1);
-    }
-  });
+async function findAvailablePort(start){
+  for(let p=start; p<start+50; p++){
+    const ok = await new Promise((resolve)=>{
+      const srv = net.createServer()
+        .once("error", ()=> resolve(false))
+        .once("listening", ()=> srv.close(()=> resolve(true)))
+        .listen(p, "0.0.0.0");
+    });
+    if(ok) return p;
+  }
+  throw new Error("Sem porta livre encontrada");
 }
 
-start(Number(process.env.AGENTE_PORTA || 6060));
+let server;
+async function start(){
+  const base = Number(process.env.AGENTE_PORTA || 6060);
+  const porta = await findAvailablePort(base);
+  server = app.listen(porta, () => console.log(`Agente na porta ${porta}`));
+}
+
+function graceful(){
+  if(server){
+    console.log("Encerrando Agente e liberando porta...");
+    try{ server.close(()=> process.exit(0)); }catch{ process.exit(0); }
+  } else {
+    process.exit(0);
+  }
+}
+process.on("SIGINT", graceful);
+process.on("SIGTERM", graceful);
+
+await start();
 
 // Estado do repositório atual
 const estado = {
@@ -132,4 +153,14 @@ app.post("/chat", async (req,res)=>{
     const resposta = await chat_simples(mensagem, ctx);
     res.json({resposta});
   }catch(e){ res.status(500).json({erro:String(e?.message||e)}); }
+});
+
+// Saúde do Ollama
+app.get("/ollama/saude", async (_req,res)=>{
+  try{
+    const r = await fetch(`${process.env.OLLAMA_URL || "http://localhost:11434"}/api/tags`);
+    if(!r.ok) return res.status(502).json({ok:false, status:r.status});
+    const j = await r.json();
+    res.json({ok:true, modelos:(j?.models||[]).map(m=>m?.name)});
+  }catch(e){ res.status(500).json({ok:false, erro:String(e?.message||e)}); }
 });
