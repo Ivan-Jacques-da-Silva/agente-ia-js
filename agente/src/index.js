@@ -65,7 +65,7 @@ function sanitizeWorkspaceName(nome) {
 }
 
 async function resolveWorkspaceDirectory(nomeProjeto) {
-  const baseDir = path.join(os.homedir(), "download", "agente");
+  const baseDir = path.join(os.homedir(), "Downloads", "agente");
   await fs.promises.mkdir(baseDir, { recursive: true });
   const safeName = sanitizeWorkspaceName(nomeProjeto);
   let destino = path.join(baseDir, safeName);

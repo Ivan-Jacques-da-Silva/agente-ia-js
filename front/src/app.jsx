@@ -1,4 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import hljs from "highlight.js/lib/common";
+import "highlight.js/styles/github-dark-dimmed.css";
 import "./app.css";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
@@ -152,7 +154,7 @@ function useEndpointResolver(candidates, healthPath) {
             }
             return;
           }
-        } catch (e) {
+        } catch {
           // tenta o próximo candidato
         }
       }
@@ -239,6 +241,7 @@ export default function App() {
   const [original, setOriginal] = useState("");
   const [chatMessages, setChatMessages] = useState([]);
   const [entradaChat, setEntradaChat] = useState("");
+  const [expandedHistory, setExpandedHistory] = useState({});
   const [explorerColapsado, setExplorerColapsado] = useState(false);
   const [chatColapsado, setChatColapsado] = useState(false);
   const [diretoriosAbertos, setDiretoriosAbertos] = useState({});
@@ -249,9 +252,14 @@ export default function App() {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState("editor");
   const [chatWidth, setChatWidth] = useState(360);
   const [isResizingChat, setIsResizingChat] = useState(false);
+  const [copiando, setCopiando] = useState(false);
 
   const chatResizeDataRef = useRef(null);
   const chatListRef = useRef(null);
+
+  const textareaRef = useRef(null);
+  const gutterRef = useRef(null);
+  const highlightRef = useRef(null);
 
   const dirty = conteudo !== original;
 
@@ -282,7 +290,7 @@ export default function App() {
     if (!requireAgentReady()) return;
     try {
       const r = await fetch(buildUrl(agenteUrl, "/mudancas/pendentes"));
-      const j = await parseJsonResponse(r, "Falha ao carregar mudan��as");
+      const j = await parseJsonResponse(r, "Falha ao carregar mudanças");
       setMudancasPendentes(j.mudancas || []);
     } catch (e) {
       console.error("Erro ao carregar mudanças:", e);
@@ -446,7 +454,7 @@ export default function App() {
       await carregarMudancasPendentes();
       await carregarHistorico();
       setErro("");
-      alert("Mudança aprovada e aplicada!");
+      alert("mudança aprovada e aplicada!");
     });
   }
 
@@ -467,7 +475,126 @@ export default function App() {
     });
   }
 
+  // Copiar código inteiro do editor
+  async function copiar_codigo() {
+    try {
+      await navigator.clipboard.writeText(conteudo || "");
+      setCopiando(true);
+      setTimeout(() => setCopiando(false), 1500);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = conteudo || "";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopiando(true);
+      setTimeout(() => setCopiando(false), 1500);
+    }
+  }
+
   const arvoreEstruturada = useMemo(() => buildTree(arvore), [arvore]);
+
+  const linhasEditor = useMemo(() => {
+    const total = Math.max(1, String(conteudo || "").split("\n").length);
+    return Array.from({ length: total }, (_, i) => i + 1).join("\n");
+  }, [conteudo]);
+
+  function guessLanguage(file) {
+    if (!file) return null;
+    const f = String(file).toLowerCase();
+    if (f.endsWith(".js")) return "javascript";
+    if (f.endsWith(".jsx")) return "jsx";
+    if (f.endsWith(".ts")) return "typescript";
+    if (f.endsWith(".tsx")) return "tsx";
+    if (f.endsWith(".json")) return "json";
+    if (f.endsWith(".css")) return "css";
+    if (f.endsWith(".scss") || f.endsWith(".sass")) return "scss";
+    if (f.endsWith(".html") || f.endsWith(".htm")) return "xml";
+    if (f.endsWith(".md")) return "markdown";
+    if (f.endsWith(".yml") || f.endsWith(".yaml")) return "yaml";
+    if (f.endsWith(".py")) return "python";
+    if (f.endsWith(".rb")) return "ruby";
+    if (f.endsWith(".go")) return "go";
+    if (f.endsWith(".rs")) return "rust";
+    if (f.endsWith(".java")) return "java";
+    if (f.endsWith(".kt")) return "kotlin";
+    if (f.endsWith(".php")) return "php";
+    if (f.endsWith(".swift")) return "swift";
+    if (f.endsWith(".sql")) return "sql";
+    if (f.includes("dockerfile")) return "dockerfile";
+    if (f.endsWith("makefile")) return "makefile";
+    return null;
+  }
+
+  const highlightedHtml = useMemo(() => {
+    try {
+      const lang = guessLanguage(arquivoAtual);
+      if (lang && hljs.getLanguage(lang)) {
+        return hljs.highlight(conteudo || "", { language: lang, ignoreIllegals: true }).value;
+      }
+      return hljs.highlightAuto(conteudo || "").value;
+    } catch {
+      const esc = String(conteudo || "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+      return esc;
+    }
+  }, [conteudo, arquivoAtual]);
+
+  const onEditorScroll = (e) => {
+    const top = e.currentTarget.scrollTop;
+    if (gutterRef.current) gutterRef.current.style.transform = `translateY(-${top}px)`;
+    if (highlightRef.current) highlightRef.current.style.transform = `translateY(-${top}px)`;
+  };
+
+  useEffect(() => {
+    if (gutterRef.current) gutterRef.current.style.transform = "translateY(0px)";
+    if (highlightRef.current) highlightRef.current.style.transform = "translateY(0px)";
+  }, [arquivoAtual]);
+
+  function parseUnifiedDiff(text) {
+    if (!text || typeof text !== "string") return [];
+    const lines = text.split(/\r?\n/);
+    const out = [];
+    let oldNo = 0, newNo = 0;
+    for (const raw of lines) {
+      if (raw.startsWith("@@")) {
+        const m = raw.match(/@@ -([0-9]+),?([0-9]*) \+([0-9]+),?([0-9]*) @@/);
+        if (m) { oldNo = parseInt(m[1], 10); newNo = parseInt(m[3], 10); }
+        out.push({ type: "context", gutter: "", code: raw });
+        continue;
+      }
+      if (raw.startsWith("+") && !raw.startsWith("+++")) {
+        out.push({ type: "add", gutter: `  ${newNo++}`, code: raw });
+        continue;
+      }
+      if (raw.startsWith("-") && !raw.startsWith("---")) {
+        out.push({ type: "remove", gutter: `${oldNo++}  `, code: raw });
+        continue;
+      }
+      if (raw.startsWith("diff ") || raw.startsWith("index ") || raw.startsWith("--- ") || raw.startsWith("+++ ")) {
+        out.push({ type: "context", gutter: "", code: raw });
+        continue;
+      }
+      out.push({ type: "context", gutter: `${oldNo} ${newNo}`, code: raw });
+      oldNo++; newNo++;
+    }
+    return out;
+  }
+
+  function renderDiff(text) {
+    const rows = parseUnifiedDiff(text);
+    if (!rows.length) return null;
+    return (
+      <div className="diff-block">
+        {rows.map((r, i) => (
+          <div key={i} className={"diff-line diff-line--" + (r.type === "add" ? "add" : r.type === "remove" ? "remove" : "context")}>
+            <div className="diff-gutter">{r.gutter}</div>
+            <div className="diff-code">{r.code}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   useEffect(() => {
     const inicial = {};
@@ -563,6 +690,18 @@ export default function App() {
     );
   };
 
+  // Atalho: Ctrl/Cmd+Shift+C para copiar código do arquivo
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        copiar_codigo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [conteudo]);
+
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
@@ -575,7 +714,7 @@ export default function App() {
         </div>
 
         <section className="sidebar-section">
-          <h2 className="section-title">Status da Conexão</h2>
+          <h2 className="section-title">Status da conexão</h2>
           <div
             className={classNames(
               "status-card",
@@ -583,7 +722,11 @@ export default function App() {
               agenteStatus === "failed" && "status-card--failed"
             )}
           >
-            {agenteStatus === "ready" ? "✓ Conectado" : agenteStatus === "resolving" ? "⏳ Conectando..." : "✗ Desconectado"}
+            {agenteStatus === "ready"
+              ? "✓ Conectado"
+              : agenteStatus === "resolving"
+                ? "⏳ Conectando..."
+                : "✗ Desconectado"}
           </div>
         </section>
 
@@ -605,7 +748,8 @@ export default function App() {
               value={caminhoLocal}
               onChange={(e) => setCaminhoLocal(e.target.value)}
             />
-            <label className="field-label" htmlFor="repoUrl">URL do Repositório</label>
+
+            <label className="field-label" htmlFor="repoUrl">URL do repositório</label>
             <input
               id="repoUrl"
               className="form-input"
@@ -613,6 +757,7 @@ export default function App() {
               value={repo}
               onChange={(e) => setRepo(e.target.value)}
             />
+
             <label className="field-label" htmlFor="branchBase">Branch Base</label>
             <input
               id="branchBase"
@@ -621,6 +766,7 @@ export default function App() {
               value={branchBase}
               onChange={(e) => setBranchBase(e.target.value)}
             />
+
             <button className="button button-primary" onClick={abrir_repo} disabled={loading}>
               {loading ? "Processando..." : "Abrir Projeto"}
             </button>
@@ -659,6 +805,17 @@ export default function App() {
               >
                 {explorerColapsado ? "Mostrar árvore" : "Ocultar árvore"}
               </button>
+
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={copiar_codigo}
+                disabled={loading || !arquivoAtual}
+                title="Copiar todo o código do arquivo (Ctrl/Cmd+Shift+C)"
+              >
+                {copiando ? "Copiado!" : "Copiar código"}
+              </button>
+
               {dirty && (
                 <button
                   type="button"
@@ -704,7 +861,7 @@ export default function App() {
 
           <div
             className="workspace-panels"
-            style={{ "--chat-panel-width": chatColapsado ? "0px" : `${chatWidth}px` }}
+            style={{ "--chat-panel-width": chatColapsado ? "40px" : `${chatWidth}px`, position: "relative" }}
           >
             <div className="editor-stack">
               <aside className={classNames("file-explorer", explorerColapsado && "is-collapsed")}>
@@ -732,29 +889,109 @@ export default function App() {
               <section className="editor-content">
                 {activeWorkspaceTab === "editor" ? (
                   <div className="editor-column">
-                    <div className="code-surface">
-                      <textarea
-                        value={conteudo}
-                        onChange={(e) => setConteudo(e.target.value)}
-                        className="code-textarea"
-                        placeholder="Selecione um arquivo para começar a edição"
-                      />
-                    </div>
-                    {dirty && (
-                      <div className="diff-bar">
-                        <div className="diff-info">
-                          <span>Alterações não salvas {arquivoAtual ? `em ${arquivoAtual}` : ""}</span>
-                          <button
-                            type="button"
-                            className="button button-tertiary"
-                            onClick={() => setConteudo(original)}
-                            disabled={loading}
-                          >
-                            Descartar alterações
-                          </button>
-                        </div>
+                    <div className="code-surface" style={{ position: "relative", display: "flex" }}>
+                      <pre
+                        ref={gutterRef}
+                        className="editor-gutter"
+                        style={{
+                          margin: 0,
+                          padding: "14px 8px",
+                          width: 56,
+                          boxSizing: "border-box",
+                          textAlign: "right",
+                          color: "#64748b",
+                          background: "rgba(10,16,30,0.9)",
+                          borderRight: "1px solid rgba(30,41,59,0.7)",
+                          fontFamily:
+                            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                          fontSize: 13,
+                          lineHeight: 1.6,
+                          whiteSpace: "pre",
+                          tabSize: 2,
+                          MozTabSize: 2,
+                        }}
+                        onWheel={(e) => {
+                          if (textareaRef.current) {
+                            textareaRef.current.scrollTop += e.deltaY;
+                            e.preventDefault();
+                          }
+                        }}
+                      >
+                        {linhasEditor}
+                      </pre>
+
+                      <div style={{ position: "relative", flex: 1 }}>
+                        <pre
+                          ref={highlightRef}
+                          aria-hidden
+                          style={{
+                            position: "absolute",
+                            top: 0, left: 0, right: 0,
+                            margin: 0,
+                            pointerEvents: "none",
+                            padding: "14px 18px",
+                            fontSize: 13,
+                            lineHeight: 1.6,
+                            fontFamily:
+                              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                            color: "#e2e8f0",
+                            whiteSpace: "pre",
+                            height: "auto",
+                            minHeight: "100%",
+                            zIndex: 0,
+                          }}
+                          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+                        />
+
+                        <textarea
+                          ref={textareaRef}
+                          value={conteudo}
+                          onChange={(e) => setConteudo(e.target.value)}
+                          onScroll={onEditorScroll}
+                          className="code-textarea"
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            boxSizing: "border-box",
+                            background: "transparent",
+                            color: "transparent",
+                            WebkitTextFillColor: "transparent",
+                            caretColor: "#e2e8f0",
+                            fontFamily:
+                              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                            border: 0,
+                            outline: "none",
+                            resize: "none",
+                            whiteSpace: "pre",
+                            position: "relative",
+                            zIndex: 1,
+                          }}
+                          wrap="off"
+                          placeholder="Selecione um arquivo para começar a edição"
+                          spellCheck={false}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          translate="no"
+                        />
                       </div>
-                    )}
+
+                      {dirty && (
+                        <div className="diff-bar">
+                          <div className="diff-info">
+                            <span>alterações não salvas {arquivoAtual ? `em ${arquivoAtual}` : ""}</span>
+                            <button
+                              type="button"
+                              className="button button-tertiary"
+                              onClick={() => setConteudo(original)}
+                              disabled={loading}
+                            >
+                              Descartar alterações
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="history-panel">
@@ -805,10 +1042,11 @@ export default function App() {
                     className="button button-tertiary"
                     onClick={() => setChatColapsado((v) => !v)}
                   >
-                    {chatColapsado ? "Abrir" : "Fechar"}
+                    {chatColapsado ? "Mostrar" : "Esconder"}
                   </button>
                 </div>
               </div>
+
               <div className="chat-message-list" ref={chatListRef}>
                 {chatMessages.length ? (
                   chatMessages.map((msg) => (
@@ -828,6 +1066,7 @@ export default function App() {
                   <div className="empty-state">Converse com o agente para orientar edições e automatizar fluxos.</div>
                 )}
               </div>
+
               <div className="chat-composer">
                 <textarea
                   className="chat-textarea"
@@ -840,6 +1079,10 @@ export default function App() {
                       enviar_chat(entradaChat);
                     }
                   }}
+                  spellCheck={false}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
                 />
                 <button
                   type="button"
@@ -853,20 +1096,34 @@ export default function App() {
             </aside>
           </div>
         </div>
+        {/* Botão flutuante para alternar o chat (fixo, não some no scroll) */}
+        <button
+          type="button"
+          className={classNames("chat-fab", !chatColapsado && "is-hidden")}
+          onClick={() => setChatColapsado((v) => !v)}
+          title={chatColapsado ? "Abrir chat" : "Esconder chat"}
+          aria-label={chatColapsado ? "Abrir chat" : "Esconder chat"}
+        >
+          {chatColapsado ? "Abrir chat" : "Esconder chat"}
+        </button>
+
       </main>
 
       {mostrarMudancas && (
         <div className="modal-layer" onClick={() => setMostrarMudancas(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h2 className="modal-title">Mudanças pendentes de aprovação</h2>
+
             {mudancasPendentes.map((mudanca) => (
               <article key={mudanca.id} className="change-card">
                 <header className="change-header">
                   <h3 className="change-title">{mudanca.arquivo}</h3>
                   <span className="change-meta">{formatTimestamp(mudanca.criado_em)}</span>
                 </header>
+
                 <p className="change-description">{mudanca.descricao}</p>
                 <pre className="diff-preview">{(mudanca.diff || "").slice(0, 2000)}</pre>
+
                 <div className="modal-actions">
                   <button
                     type="button"
@@ -876,6 +1133,7 @@ export default function App() {
                   >
                     ✓ Aprovar e aplicar
                   </button>
+
                   <button
                     type="button"
                     className="button button-secondary"
@@ -887,7 +1145,12 @@ export default function App() {
                 </div>
               </article>
             ))}
-            <button type="button" className="button button-tertiary" onClick={() => setMostrarMudancas(false)}>
+
+            <button
+              type="button"
+              className="button button-tertiary"
+              onClick={() => setMostrarMudancas(false)}
+            >
               Fechar
             </button>
           </div>
@@ -895,7 +1158,7 @@ export default function App() {
       )}
 
       {loading && (
-        <div className="loading-overlay">
+        <div className="loading-overlay" role="status" aria-live="polite">
           <div className="loading-indicator">
             <span className="loading-spinner" />
             <p className="loading-text">{loadingMessage || "Processando..."}</p>
