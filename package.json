@@ -1,12 +1,16 @@
 {
   "name": "agente-ia-js",
   "private": true,
-  "workspaces": ["front", "api", "agente"],
+  "workspaces": [
+    "front",
+    "api",
+    "agente"
+  ],
   "scripts": {
     "instalar": "npm i --workspaces",
     "dev": "concurrently -k -n api,agente,front -c yellow,cyan,magenta \"npm:dev --workspace api\" \"npm:dev --workspace agente\" \"npm:dev --workspace front\""
   },
   "devDependencies": {
-    "concurrently": "^9.0.1"
+    "concurrently": "^9.2.1"
   }
 }

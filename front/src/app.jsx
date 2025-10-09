@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
 
@@ -67,6 +67,128 @@ function buildUrl(base, path) {
   return `${trimmedBase}${caminho}`;
 }
 
+function buildTree(list){
+  if(!Array.isArray(list)) return [];
+  const root = { children: {} };
+  const ensureDir = (parent, part, fullPath)=>{
+    if(!parent.children[part]){
+      parent.children[part] = {
+        nome: part,
+        tipo: "dir",
+        fullPath,
+        children: {},
+      };
+    }
+    return parent.children[part];
+  };
+
+  for(const item of list){
+    if(!item || !item.path) continue;
+    const partes = item.path.split("/");
+    let cursor = root;
+    partes.forEach((parte, idx)=>{
+      const atualPath = partes.slice(0, idx+1).join("/");
+      const ultimo = idx === partes.length-1;
+      if(ultimo){
+        if(item.tipo === "dir"){
+          const dir = ensureDir(cursor, parte, atualPath);
+          dir.tipo = "dir";
+        }else{
+          cursor.children[parte] = {
+            nome: parte,
+            tipo: item.tipo || "file",
+            fullPath: item.path,
+          };
+        }
+      }else{
+        cursor = ensureDir(cursor, parte, atualPath);
+      }
+    });
+  }
+
+  const ordenar = (nodes)=>{
+    return nodes.sort((a,b)=>{
+      if(a.tipo === b.tipo) return a.nome.localeCompare(b.nome);
+      return a.tipo === "dir" ? -1 : 1;
+    });
+  };
+
+  const toArray = (node)=>{
+    return ordenar(Object.values(node.children)).map((item)=>{
+      if(item.tipo === "dir"){
+        return {
+          ...item,
+          children: toArray(item),
+        };
+      }
+      return item;
+    });
+  };
+
+  return toArray(root);
+}
+
+function calculateDiff(before, after){
+  if(before === after){
+    return { linhas: [], adicionadas: 0, removidas: 0, truncado: false };
+  }
+  const linhasAntes = before.split("\n");
+  const linhasDepois = after.split("\n");
+  const limite = 160000;
+  if(linhasAntes.length * linhasDepois.length > limite){
+    return {
+      linhas: [],
+      adicionadas: Math.max(0, linhasDepois.length - linhasAntes.length),
+      removidas: Math.max(0, linhasAntes.length - linhasDepois.length),
+      truncado: true,
+    };
+  }
+
+  const m = linhasAntes.length;
+  const n = linhasDepois.length;
+  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for(let i = m - 1; i >= 0; i--){
+    for(let j = n - 1; j >= 0; j--){
+      if(linhasAntes[i] === linhasDepois[j]) dp[i][j] = dp[i + 1][j + 1] + 1;
+      else dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const linhas = [];
+  let adicionadas = 0;
+  let removidas = 0;
+  let i = 0;
+  let j = 0;
+  let linhaAntes = 1;
+  let linhaDepois = 1;
+
+  while(i < m && j < n){
+    if(linhasAntes[i] === linhasDepois[j]){
+      linhas.push({ tipo: "contexto", valor: linhasAntes[i], linhaAntes, linhaDepois });
+      i++; j++; linhaAntes++; linhaDepois++;
+    }else if(dp[i + 1][j] >= dp[i][j + 1]){
+      linhas.push({ tipo: "removida", valor: linhasAntes[i], linhaAntes, linhaDepois: "" });
+      i++; linhaAntes++; removidas++;
+    }else{
+      linhas.push({ tipo: "adicionada", valor: linhasDepois[j], linhaAntes: "", linhaDepois });
+      j++; linhaDepois++; adicionadas++;
+    }
+  }
+
+  while(i < m){
+    linhas.push({ tipo: "removida", valor: linhasAntes[i], linhaAntes, linhaDepois: "" });
+    i++; linhaAntes++; removidas++;
+  }
+
+  while(j < n){
+    linhas.push({ tipo: "adicionada", valor: linhasDepois[j], linhaAntes: "", linhaDepois });
+    j++; linhaDepois++; adicionadas++;
+  }
+
+  return { linhas, adicionadas, removidas, truncado: false };
+}
+
 async function parseJsonResponse(response, fallbackMessage) {
   const texto = await response.text();
   let dados = {};
@@ -127,72 +249,33 @@ function useEndpointResolver(candidates, healthPath) {
 export default function App(){
   const { base: apiUrl, status: apiStatus } = useEndpointResolver(API_CANDIDATES, "/saude");
   const { base: agenteUrl, status: agenteStatus } = useEndpointResolver(AGENTE_CANDIDATES, "/saude");
-  const [titulo,setTitulo]=useState("");
   const [repo,setRepo]=useState("");
-  const [descricao,setDescricao]=useState("");
   const [branchBase,setBranchBase]=useState("");
-  const [id,setId]=useState();
-  const [status,setStatus]=useState(null);
   const [erro,setErro]=useState("");
-  const timerRef = useRef(null);
 
-  function requireApiReady(){
-    if(apiStatus === "failed"){ setErro("API indisponível. Verifique o serviço do backend."); return false; }
-    if(apiStatus !== "ready"){ setErro("Aguardando conexão com a API..."); return false; }
-    return true;
-  }
-
-  function requireAgentReady(){
+  const requireAgentReady = ()=>{
     if(agenteStatus === "failed"){ setErro("Agente indisponível. Verifique o serviço do agente."); return false; }
     if(agenteStatus !== "ready"){ setErro("Aguardando conexão com o agente..."); return false; }
     return true;
-  }
+  };
 
-  async function criar_tarefa(){
-    setErro("");
-    if(!requireApiReady()) return;
-    if(!titulo || !repo){ setErro("Preencha título e URL do repositório"); return; }
-    try{
-      const r=await fetch(buildUrl(apiUrl, "/tarefas"),{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({titulo,repositorioUrl:repo,descricao,branchBase})
-      });
-      const j=await parseJsonResponse(r, "Falha ao criar tarefa");
-      setId(j.id);
-      setStatus(null);
-    }catch(e){ setErro(String(e?.message||e)); }
-  }
-
-  async function ver_status(){
-    if(!id) return;
-    if(!requireApiReady()) return;
-    try{
-      const r=await fetch(buildUrl(apiUrl, `/tarefas/${id}`));
-      const j=await parseJsonResponse(r, "Falha ao consultar status");
-      setStatus(j);
-    }catch(e){ setErro(String(e?.message||e)); }
-  }
-
-  useEffect(()=>{
-    if(!id) return;
-    if(timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(ver_status, 1500);
-    return ()=>{ if(timerRef.current) clearInterval(timerRef.current); };
-  },[id]);
-
-  // Estados de edição de arquivos e chat
   const [arvore,setArvore]=useState([]);
   const [arquivoAtual,setArquivoAtual]=useState("");
   const [conteudo,setConteudo]=useState("");
   const [original,setOriginal]=useState("");
-  const dirty = conteudo !== original;
   const [chat,setChat]=useState([]);
+  const [entradaChat,setEntradaChat]=useState("");
+  const [mostrarDiff,setMostrarDiff]=useState(false);
+  const [explorerColapsado,setExplorerColapsado]=useState(false);
+  const [chatColapsado,setChatColapsado]=useState(false);
+  const [painelAberto,setPainelAberto]=useState({ conexoes:true, repositorio:true });
+  const [diretoriosAbertos,setDiretoriosAbertos]=useState({});
 
+  const dirty = conteudo !== original;
   const statusMeta = {
-    ready: { texto: "Conectado", cor: "#4ade80" },
-    resolving: { texto: "Conectando...", cor: "#facc15" },
-    failed: { texto: "Falha na conexão", cor: "#f87171" },
+    ready: { texto: "Conectado", cor: "#34d399" },
+    resolving: { texto: "Conectando...", cor: "#fbbf24" },
+    failed: { texto: "Falha", cor: "#f87171" },
   };
 
   const conexoes = [
@@ -224,10 +307,17 @@ export default function App(){
 
   async function abrir_arquivo(p){
     if(!requireAgentReady()) return;
-    try{ const r=await fetch(buildUrl(agenteUrl, `/repo/file?path=${encodeURIComponent(p)}`)); const t=await r.text(); setArquivoAtual(p); setConteudo(t); setOriginal(t);}catch(e){ setErro(String(e?.message||e)); }
+    try{
+      const r=await fetch(buildUrl(agenteUrl, `/repo/file?path=${encodeURIComponent(p)}`));
+      const t=await r.text();
+      setArquivoAtual(p);
+      setConteudo(t);
+      setOriginal(t);
+      setMostrarDiff(false);
+    }catch(e){ setErro(String(e?.message||e)); }
   }
 
-  async function salvar_arquivo(){
+  async function persistirArquivo(){
     if(!arquivoAtual) return;
     if(!requireAgentReady()) return;
     try{
@@ -236,6 +326,7 @@ export default function App(){
       });
       await parseJsonResponse(r, "Falha ao salvar arquivo");
       setOriginal(conteudo);
+      setMostrarDiff(false);
       await carregar_arvore();
     }catch(e){ setErro(String(e?.message||e)); }
   }
@@ -251,10 +342,12 @@ export default function App(){
   }
 
   async function enviar_chat(texto){
-    const msg = texto.trim(); if(!msg) return;
+    const msg = texto.trim();
+    if(!msg) return;
     if(!requireAgentReady()) { setErro("Aguardando conexão com o agente para enviar mensagens."); return; }
     const novo = [...chat, {autor:"Você", texto: msg}];
     setChat(novo);
+    setEntradaChat("");
     try{
       const r=await fetch(buildUrl(agenteUrl, "/chat"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagem:msg})});
       const j=await parseJsonResponse(r, "Falha ao enviar mensagem");
@@ -262,131 +355,262 @@ export default function App(){
     }catch(e){ setChat([...novo, {autor:"Agente", texto:String(e?.message||e)}]); }
   }
 
-  const [entradaChat,setEntradaChat]=useState("");
+  const arvoreEstruturada = useMemo(()=> buildTree(arvore), [arvore]);
 
-  const layout = {
-    page:{display:"grid",gridTemplateColumns:"320px 1fr 360px",height:"100vh",fontFamily:"'Inter', system-ui, -apple-system, BlinkMacSystemFont",background:"linear-gradient(135deg,#f8fafc,#e2e8f0)"},
-    sidebar:{padding:20,overflow:"auto",background:"rgba(15,23,42,0.85)",color:"#e2e8f0",backdropFilter:"blur(12px)",display:"grid",gap:18},
-    logo:{display:"flex",alignItems:"center",gap:10,fontWeight:700,fontSize:18},
-    badge:{background:"rgba(148,163,184,0.25)",padding:"4px 10px",borderRadius:999,fontSize:12,letterSpacing:0.5,display:"inline-flex",alignItems:"center",gap:6},
-    inputLabel:{fontSize:12,textTransform:"uppercase",letterSpacing:0.6,color:"#cbd5f5"},
-    input:{padding:"10px 12px",borderRadius:10,border:"1px solid rgba(148,163,184,0.35)",background:"rgba(15,23,42,0.6)",color:"#f8fafc"},
-    statusBadge:{padding:"12px 14px",borderRadius:12,background:"rgba(148,163,184,0.16)",border:"1px solid rgba(148,163,184,0.28)",display:"grid",gap:6},
-    statusHeader:{display:"flex",alignItems:"center",gap:8,fontWeight:600,fontSize:13},
-    statusUrl:{fontSize:11,color:"rgba(226,232,240,0.75)",wordBreak:"break-word"},
-    buttonPrimary:{padding:"10px 14px",background:"linear-gradient(135deg,#3b82f6,#2563eb)",color:"#fff",border:0,borderRadius:10,fontWeight:600,boxShadow:"0 10px 25px rgba(37,99,235,0.35)",cursor:"pointer"},
-    buttonSecondary:{padding:"10px 14px",background:"rgba(148,163,184,0.2)",color:"#f8fafc",border:"1px solid rgba(148,163,184,0.3)",borderRadius:10,fontWeight:500,cursor:"pointer"},
-    main:{display:"grid",gridTemplateRows:"auto 1fr auto",overflow:"hidden",padding:"24px",gap:18},
-    panel:{background:"rgba(255,255,255,0.82)",borderRadius:20,boxShadow:"0 25px 50px -12px rgba(15,23,42,0.25)",backdropFilter:"blur(14px)",display:"grid",gridTemplateRows:"auto 1fr auto"},
-    topbar:{display:"flex",gap:12,alignItems:"center",padding:"18px 20px",borderBottom:"1px solid rgba(226,232,240,0.8)"},
-    topTitle:{fontSize:18,fontWeight:700,margin:0,color:"#0f172a"},
-    editorWrap:{padding:0,overflow:"hidden"},
-    editor:{width:"100%",height:"100%",border:0,outline:"none",padding:20,fontSize:14,lineHeight:1.5,color:"#0f172a",background:"transparent",fontFamily:"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"},
-    actions:{display:"flex",gap:12,padding:"16px 20px",borderTop:"1px solid rgba(226,232,240,0.8)",background:"rgba(248,250,252,0.9)"},
-    chat:{padding:24,display:"grid",gridTemplateRows:"auto 1fr auto",gap:16},
-    chatCard:{background:"rgba(255,255,255,0.82)",borderRadius:20,boxShadow:"0 25px 50px -12px rgba(15,23,42,0.2)",backdropFilter:"blur(14px)",display:"grid",gridTemplateRows:"auto 1fr auto"},
-    chatHead:{padding:"18px 20px",borderBottom:"1px solid rgba(226,232,240,0.7)",display:"flex",flexDirection:"column",gap:4},
-    chatBody:{padding:"18px 20px",overflow:"auto",display:"grid",gap:12,alignContent:"start",background:"rgba(248,250,252,0.65)",borderRadius:"0 0 20px 20px"},
-    chatFoot:{display:"flex",gap:10,padding:"16px 20px",borderTop:"1px solid rgba(226,232,240,0.7)",background:"rgba(248,250,252,0.9)",borderRadius:"0 0 20px 20px"},
-    tag:{fontSize:12,fontWeight:600,color:"#334155"}
+  useEffect(()=>{
+    const inicial = {};
+    const visitar = (nodos)=>{
+      nodos.forEach((n)=>{
+        if(n.tipo === "dir"){
+          inicial[n.fullPath] = true;
+          if(n.children) visitar(n.children);
+        }
+      });
+    };
+    visitar(arvoreEstruturada);
+    setDiretoriosAbertos((prev)=> ({ ...inicial, ...prev }));
+  },[arvoreEstruturada]);
+
+  useEffect(()=>{
+    if(!dirty) setMostrarDiff(false);
+  },[dirty]);
+
+  const diffInfo = useMemo(()=> calculateDiff(original, conteudo), [original, conteudo]);
+
+  const styles = {
+    shell:{display:"flex",height:"100vh",background:"radial-gradient(circle at top,#1f2a40,#0b1120 65%)",color:"#e2e8f0",fontFamily:"'Inter', system-ui, -apple-system, BlinkMacSystemFont"},
+    sidebar:{width:300,display:"flex",flexDirection:"column",gap:24,padding:"28px 22px",background:"rgba(8,15,27,0.92)",borderRight:"1px solid rgba(148,163,184,0.15)",backdropFilter:"blur(18px)"},
+    brand:{display:"flex",alignItems:"center",gap:12},
+    brandLogo:{width:44,height:44,borderRadius:14,background:"linear-gradient(135deg,#38bdf8,#2563eb)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700},
+    brandText:{display:"flex",flexDirection:"column",gap:6,fontWeight:600},
+    section:{display:"flex",flexDirection:"column",gap:12},
+    sectionHeader:{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:13,fontWeight:600,letterSpacing:0.4,color:"#cbd5f5"},
+    toggleBtn:{background:"transparent",border:0,color:"#94a3b8",cursor:"pointer",fontSize:16},
+    statusCard:{display:"flex",flexDirection:"column",gap:8,padding:"12px 14px",borderRadius:14,background:"rgba(15,23,42,0.68)",border:"1px solid rgba(148,163,184,0.2)"},
+    statusRow:{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:600},
+    statusUrl:{fontSize:11,color:"rgba(226,232,240,0.65)",wordBreak:"break-word"},
+    input:{padding:"10px 12px",borderRadius:10,border:"1px solid rgba(148,163,184,0.2)",background:"rgba(15,23,42,0.55)",color:"#f8fafc",fontSize:13},
+    primaryButton:{padding:"10px 14px",borderRadius:10,border:0,background:"linear-gradient(135deg,#4f46e5,#3b82f6)",color:"#fff",fontWeight:600,cursor:"pointer",display:"flex",gap:8,alignItems:"center",justifyContent:"center",boxShadow:"0 12px 28px rgba(59,130,246,0.28)"},
+    secondaryButton:{padding:"10px 14px",borderRadius:10,border:"1px solid rgba(148,163,184,0.3)",background:"rgba(15,23,42,0.35)",color:"#e2e8f0",fontWeight:500,cursor:"pointer"},
+    main:{flex:1,display:"flex",flexDirection:"column",padding:"28px 30px",gap:20},
+    chrome:{background:"rgba(10,12,23,0.85)",borderRadius:20,border:"1px solid rgba(148,163,184,0.16)",boxShadow:"0 30px 80px -30px rgba(15,23,42,0.6)",display:"flex",flexDirection:"column",flex:1,overflow:"hidden"},
+    windowBar:{display:"flex",alignItems:"center",gap:10,padding:"16px 22px",borderBottom:"1px solid rgba(148,163,184,0.18)",background:"rgba(15,23,42,0.75)"},
+    windowDots:{display:"flex",gap:8},
+    windowDot:(color)=>({width:12,height:12,borderRadius:"50%",background:color,boxShadow:`0 0 0 1px rgba(0,0,0,0.25)`}),
+    tabBar:{display:"flex",alignItems:"center",gap:10,padding:"12px 18px",background:"rgba(9,10,22,0.95)",borderBottom:"1px solid rgba(148,163,184,0.18)"},
+    tab:{padding:"8px 14px",borderRadius:10,fontSize:13,background:"rgba(15,23,42,0.75)",color:"#94a3b8"},
+    tabActive:{background:"linear-gradient(135deg,#1d4ed8,#2563eb)",color:"#e2e8f0"},
+    errorBanner:{padding:"10px 18px",background:"rgba(248,113,113,0.15)",borderBottom:"1px solid rgba(248,113,113,0.45)",color:"#fecaca",fontSize:13},
+    workspace:{flex:1,display:"flex",overflow:"hidden",background:"rgba(2,6,23,0.9)"},
+    explorer:(colapsado)=>({width:colapsado?56:260,transition:"width .25s ease",borderRight:"1px solid rgba(148,163,184,0.12)",background:"rgba(6,11,25,0.92)",display:"flex",flexDirection:"column"}),
+    explorerHeader:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:"1px solid rgba(148,163,184,0.12)",fontSize:12,letterSpacing:0.3,fontWeight:600,color:"#cbd5f5"},
+    explorerBody:{flex:1,overflow:"auto",padding:"12px 10px 40px",fontFamily:"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",fontSize:12,display:"flex",flexDirection:"column",gap:4},
+    treeNode:(ativo)=>({display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:8,cursor:"pointer",background:ativo?"rgba(37,99,235,0.28)":"transparent",color:"#cbd5f5",transition:"background .2s"}),
+    treeIndent:(nivel)=>({marginLeft:nivel*16}),
+    editorCol:{flex:1,display:"flex",flexDirection:"column"},
+    editorSurface:{flex:1,position:"relative",background:"#0f172a"},
+    editorTextarea:{position:"absolute",top:0,left:0,right:0,bottom:0,width:"100%",height:"100%",background:"transparent",color:"#e2e8f0",border:0,padding:"22px 28px",fontSize:14,lineHeight:1.6,fontFamily:"'Fira Code', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"},
+    diffBar:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderTop:"1px solid rgba(148,163,184,0.14)",background:"rgba(15,23,42,0.85)",fontSize:13},
+    diffPanel:{margin:18,padding:18,background:"rgba(15,23,42,0.9)",border:"1px solid rgba(148,163,184,0.22)",borderRadius:14,display:"flex",flexDirection:"column",gap:16,maxHeight:260,overflow:"hidden"},
+    diffScroll:{flex:1,overflow:"auto",background:"rgba(2,6,23,0.9)",borderRadius:10,border:"1px solid rgba(30,64,175,0.35)",fontFamily:"'Fira Code', ui-monospace",fontSize:12},
+    diffLine:(tipo)=>({display:"grid",gridTemplateColumns:"60px 60px 1fr",gap:12,padding:"6px 18px",background:tipo==="adicionada"?"rgba(34,197,94,0.14)":tipo==="removida"?"rgba(248,113,113,0.12)":"transparent",color:tipo==="adicionada"?"#bbf7d0":tipo==="removida"?"#fecaca":"#cbd5f5",borderBottom:"1px solid rgba(148,163,184,0.08)"}),
+    diffActions:{display:"flex",justifyContent:"flex-end",gap:12},
+    chatDock:(colapsado)=>({marginTop:18,background:"rgba(8,12,25,0.92)",border:"1px solid rgba(148,163,184,0.16)",borderRadius:18,overflow:"hidden",transition:"height .25s ease",height:colapsado?54:320,display:"flex",flexDirection:"column"}),
+    chatHeader:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderBottom:"1px solid rgba(148,163,184,0.14)",fontWeight:600,fontSize:13,color:"#cbd5f5"},
+    chatMessages:{flex:1,overflow:"auto",padding:"18px 22px",display:"flex",flexDirection:"column",gap:12},
+    chatBubble:(autor)=>({alignSelf:autor==="Você"?"flex-end":"flex-start",maxWidth:"70%",background:autor==="Você"?"rgba(37,99,235,0.35)":"rgba(15,23,42,0.6)",border:"1px solid rgba(148,163,184,0.2)",borderRadius:autor==="Você"?"16px 16px 0 16px":"16px 16px 16px 0",padding:"12px 14px",display:"grid",gap:6,color:"#e2e8f0"}),
+    chatInputRow:{display:"flex",gap:12,padding:"16px 18px",borderTop:"1px solid rgba(148,163,184,0.16)",background:"rgba(10,12,23,0.92)"},
+    chatInput:{flex:1,minHeight:44,borderRadius:12,border:"1px solid rgba(148,163,184,0.25)",background:"rgba(15,23,42,0.55)",color:"#e2e8f0",padding:"10px 12px",fontSize:13,fontFamily:"'Inter', system-ui"},
   };
 
+  const renderNode = (node, nivel=0)=>{
+    const isDir = node.tipo === "dir";
+    const aberto = diretoriosAbertos[node.fullPath] ?? true;
+    const handleClick = ()=>{
+      if(isDir){
+        setDiretoriosAbertos((prev)=> ({...prev, [node.fullPath]: !aberto }));
+      }else{
+        abrir_arquivo(node.fullPath);
+      }
+    };
+    return (
+      <div key={node.fullPath}>
+        <div style={{...styles.treeIndent(nivel), ...styles.treeNode(arquivoAtual===node.fullPath)}} onClick={handleClick}>
+          <span style={{fontSize:12}}>{isDir ? (aberto ? "▾" : "▸") : ""}</span>
+          <span>{isDir ? (aberto ? "📂" : "📁") : "📄"}</span>
+          <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{node.nome}</span>
+        </div>
+        {isDir && aberto && node.children && node.children.map((filho)=> renderNode(filho, nivel+1))}
+      </div>
+    );
+  };
+
+  const diffResumo = `+${diffInfo.adicionadas}  -${diffInfo.removidas}`;
+
   return (
-    <div style={layout.page}>
-      <aside style={layout.sidebar}>
-        <div style={layout.logo}>
-          <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:36,height:36,borderRadius:12,background:"rgba(148,163,184,0.2)",color:"#38bdf8",fontWeight:700}}>AI</span>
-          <div>
-            Painel do Agente
-            <div style={layout.badge}>Gerencie sua sessão</div>
+    <div style={styles.shell}>
+      <aside style={styles.sidebar}>
+        <div style={styles.brand}>
+          <div style={styles.brandLogo}>AI</div>
+          <div style={styles.brandText}>
+            <span style={{fontSize:15}}>Agente de Código</span>
+            <span style={{fontSize:12,color:"#64748b"}}>Sessão local conectada</span>
           </div>
         </div>
-        <div style={{display:"grid",gap:12}}>
-          <div style={{fontWeight:600,fontSize:13,letterSpacing:0.2,color:"#cbd5f5"}}>Conexões automáticas</div>
-          <div style={{display:"grid",gap:10}}>
-            {conexoes.map((c)=>{
-              const meta = statusMeta[c.status] || statusMeta.resolving;
-              return (
-                <div key={c.chave} style={layout.statusBadge}>
-                  <div style={layout.statusHeader}>
-                    <span style={{width:8,height:8,borderRadius:"50%",background:meta.cor}}/>
-                    <span>{c.titulo}</span>
-                    <span style={{marginLeft:"auto",fontSize:12,color:"rgba(226,232,240,0.75)"}}>{meta.texto}</span>
+
+        <div style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <span>Status das conexões</span>
+            <button style={styles.toggleBtn} onClick={()=>setPainelAberto((prev)=>({...prev, conexoes:!prev.conexoes}))}>{painelAberto.conexoes ? "−" : "+"}</button>
+          </div>
+          {painelAberto.conexoes && (
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {conexoes.map((c)=>{
+                const meta = statusMeta[c.status] || statusMeta.resolving;
+                return (
+                  <div key={c.chave} style={styles.statusCard}>
+                    <div style={styles.statusRow}>
+                      <span style={{width:8,height:8,borderRadius:"50%",background:meta.cor}}></span>
+                      <span>{c.titulo}</span>
+                      <span style={{marginLeft:"auto",fontSize:12,color:"rgba(226,232,240,0.65)"}}>{meta.texto}</span>
+                    </div>
+                    <div style={styles.statusUrl}>{c.url || "Detectando endpoint..."}</div>
                   </div>
-                  <div style={layout.statusUrl}>{c.url || "Detectando endpoint..."}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <div style={{height:1,background:"rgba(148,163,184,0.25)"}}/>
-        <div style={{display:"grid",gap:14}}>
-          <div style={{display:"grid",gap:6}}>
-            <div style={layout.inputLabel}>Repositório</div>
-            <input placeholder="URL do repositório" value={repo} onChange={e=>setRepo(e.target.value)} style={layout.input}/>
-          </div>
-          <div style={{display:"grid",gap:6}}>
-            <div style={layout.inputLabel}>Branch base (opcional)</div>
-            <input placeholder="main" value={branchBase} onChange={e=>setBranchBase(e.target.value)} style={layout.input}/>
-          </div>
-          <div style={{display:'flex',gap:10}}>
-            <button onClick={abrir_repo} style={layout.buttonPrimary}>Abrir repositório</button>
-            <button onClick={carregar_arvore} style={layout.buttonSecondary}>Atualizar árvore</button>
-          </div>
-        </div>
-        <div style={{height:1,background:"rgba(148,163,184,0.25)"}}/>
-        <div style={{display:"grid",gap:10}}>
-          <div style={{fontWeight:600,fontSize:13,letterSpacing:0.2,color:"#cbd5f5"}}>Arquivos</div>
-          <div style={{maxHeight:"60vh",overflow:"auto",fontFamily:"ui-monospace",fontSize:12,display:"grid",gap:6}}>
-            {arvore.map((n,i)=> (
-              <div key={i} onClick={()=> n.tipo==="file" && abrir_arquivo(n.path)} style={{padding:"6px 8px",borderRadius:10,cursor:n.tipo==="file"?"pointer":"default",display:"flex",alignItems:"center",gap:8,background:n.path===arquivoAtual?"rgba(59,130,246,0.18)":"transparent",color:n.tipo==="dir"?"#cbd5f5":"#f8fafc",transition:"all .2s"}}>
-                <span>{n.tipo==="dir"?"📁":"📄"}</span>
-                <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{n.path}</span>
-              </div>
-            ))}
-            {!arvore.length && <div style={{color:"rgba(226,232,240,0.6)"}}>Nenhum repositório carregado.</div>}
-          </div>
-        </div>
-      </aside>
-      <section style={layout.main}>
-        <div style={layout.panel}>
-          <div style={layout.topbar}>
-            <div>
-              <h1 style={layout.topTitle}>{arquivoAtual||"Selecione um arquivo para editar"}</h1>
-              {erro && <div style={{color:"#b91c1c",fontSize:13,fontWeight:500}}>{erro}</div>}
+                );
+              })}
             </div>
-            {dirty && <span style={{marginLeft:"auto",...layout.tag}}>Alterações não salvas</span>}
-          </div>
-          <div style={layout.editorWrap}>
-            <textarea value={conteudo} onChange={e=>setConteudo(e.target.value)} style={layout.editor} placeholder="Conteúdo do arquivo"/>
-          </div>
-          <div style={layout.actions}>
-            <button onClick={salvar_arquivo} disabled={!dirty} style={{...layout.buttonPrimary,opacity:dirty?1:0.55,boxShadow:dirty?layout.buttonPrimary.boxShadow:"none",cursor:dirty?"pointer":"not-allowed"}}>Aplicar alterações</button>
-            <button onClick={commit_push} style={{...layout.buttonSecondary,background:"rgba(15,23,42,0.1)",color:"#0f172a",border:"1px solid rgba(148,163,184,0.35)"}}>Commit & Push</button>
-          </div>
+          )}
         </div>
-      </section>
-      <aside style={layout.chat}>
-        <div style={layout.chatCard}>
-          <div style={layout.chatHead}>
-            <div style={{fontWeight:700,color:"#0f172a"}}>Chat com o agente</div>
-            <div style={{fontSize:12,color:"#475569"}}>Peça contexto ou oriente o fluxo de trabalho</div>
+
+        <div style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <span>Repositório ativo</span>
+            <button style={styles.toggleBtn} onClick={()=>setPainelAberto((prev)=>({...prev, repositorio:!prev.repositorio}))}>{painelAberto.repositorio ? "−" : "+"}</button>
           </div>
-          <div style={layout.chatBody}>
-            {chat.map((m,i)=> (
-              <div key={i} style={{background:m.autor==="Você"?"rgba(59,130,246,0.18)":"rgba(15,23,42,0.05)",border:"1px solid rgba(148,163,184,0.35)",borderRadius:14,padding:12,display:"grid",gap:4}}>
-                <div style={{fontWeight:600,fontSize:12,color:"#0f172a"}}>{m.autor}</div>
-                <div style={{whiteSpace:"pre-wrap",fontSize:13,color:"#1e293b"}}>{m.texto}</div>
+          {painelAberto.repositorio && (
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <label style={{fontSize:11,textTransform:"uppercase",letterSpacing:0.5,color:"#64748b"}}>URL do repositório</label>
+                <input style={styles.input} placeholder="https://github.com/org/projeto" value={repo} onChange={(e)=>setRepo(e.target.value)} />
               </div>
-            ))}
-            {!chat.length && <div style={{fontSize:13,color:"#64748b"}}>Inicie uma conversa para receber ajuda contextual do agente.</div>}
-          </div>
-          <div style={layout.chatFoot}>
-            <input placeholder="Pergunte algo ao agente..." value={entradaChat} onChange={e=>setEntradaChat(e.target.value)} style={{flex:1,padding:"10px 12px",borderRadius:12,border:"1px solid rgba(148,163,184,0.45)",background:"#fff",fontSize:13}} onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviar_chat(entradaChat); setEntradaChat(""); } }}/>
-            <button onClick={()=>{ enviar_chat(entradaChat); setEntradaChat(""); }} style={{...layout.buttonPrimary,boxShadow:"0 12px 20px rgba(59,130,246,0.35)"}}>Enviar</button>
-          </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <label style={{fontSize:11,textTransform:"uppercase",letterSpacing:0.5,color:"#64748b"}}>Branch base</label>
+                <input style={styles.input} placeholder="main" value={branchBase} onChange={(e)=>setBranchBase(e.target.value)} />
+              </div>
+              <div style={{display:"flex",gap:10}}>
+                <button style={styles.primaryButton} onClick={abrir_repo}>Abrir workspace</button>
+                <button style={styles.secondaryButton} onClick={carregar_arvore}>Recarregar árvore</button>
+              </div>
+            </div>
+          )}
         </div>
       </aside>
+
+      <main style={styles.main}>
+        <div style={styles.chrome}>
+          <div style={styles.windowBar}>
+            <div style={styles.windowDots}>
+              <div style={styles.windowDot("#ef4444")} />
+              <div style={styles.windowDot("#facc15")} />
+              <div style={styles.windowDot("#22c55e")} />
+            </div>
+            <div style={{marginLeft:12,fontSize:13,color:"#94a3b8"}}>Editor do agente</div>
+            <div style={{marginLeft:"auto",display:"flex",gap:10}}>
+              <button style={styles.secondaryButton} onClick={()=>setExplorerColapsado((v)=>!v)}>{explorerColapsado?"Mostrar árvore":"Ocultar árvore"}</button>
+              <button style={styles.secondaryButton} onClick={commit_push}>Commit & Push</button>
+            </div>
+          </div>
+          <div style={styles.tabBar}>
+            <div style={{...styles.tab, ...(arquivoAtual ? styles.tabActive : {})}}>{arquivoAtual || "Sem arquivo aberto"}</div>
+          </div>
+          {erro && <div style={styles.errorBanner}>{erro}</div>}
+          <div style={styles.workspace}>
+            <div style={styles.explorer(explorerColapsado)}>
+              <div style={styles.explorerHeader}>
+                <span>{explorerColapsado ? "" : "Explorador"}</span>
+                <button style={styles.toggleBtn} onClick={()=>setExplorerColapsado((v)=>!v)}>{explorerColapsado?"▸":"▾"}</button>
+              </div>
+              {!explorerColapsado && (
+                <div style={styles.explorerBody}>
+                  {arvoreEstruturada.length ? arvoreEstruturada.map((n)=> renderNode(n)) : <div style={{color:"#475569",padding:"12px 6px"}}>Nenhum repositório carregado.</div>}
+                </div>
+              )}
+            </div>
+            <div style={styles.editorCol}>
+              <div style={styles.editorSurface}>
+                <textarea value={conteudo} onChange={(e)=>setConteudo(e.target.value)} style={styles.editorTextarea} placeholder="Selecione um arquivo para começar a edição" />
+              </div>
+              {dirty && (
+                <div style={styles.diffBar}>
+                  <div style={{display:"flex",flexDirection:"column"}}>
+                    <span>Alterações não aplicadas {arquivoAtual ? `em ${arquivoAtual}` : ""}</span>
+                    <span style={{fontSize:12,color:"#64748b"}}>Resumo {diffResumo}</span>
+                  </div>
+                  <div style={{display:"flex",gap:10}}>
+                    <button style={styles.secondaryButton} onClick={()=>setMostrarDiff(true)}>Pré-visualizar</button>
+                    <button style={styles.secondaryButton} onClick={()=>{ setConteudo(original); setMostrarDiff(false); }}>Descartar</button>
+                  </div>
+                </div>
+              )}
+              {mostrarDiff && dirty && (
+                <div style={styles.diffPanel}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{fontWeight:600,fontSize:14}}>Deseja aplicar as alterações?</div>
+                      <div style={{fontSize:12,color:"#94a3b8"}}>Confirme para salvar o arquivo via agente.</div>
+                    </div>
+                    <span style={{fontFamily:"ui-monospace",fontSize:12,color:"#60a5fa"}}>{diffResumo}</span>
+                  </div>
+                  {diffInfo.truncado ? (
+                    <div style={{padding:12,borderRadius:10,border:"1px solid rgba(148,163,184,0.2)",background:"rgba(15,23,42,0.7)",fontSize:12,color:"#cbd5f5"}}>
+                      Pré-visualização indisponível para arquivos grandes. Deseja aplicar mesmo assim?
+                    </div>
+                  ) : (
+                    <div style={styles.diffScroll}>
+                      {diffInfo.linhas.map((linha,idx)=>(
+                        <div key={idx} style={styles.diffLine(linha.tipo)}>
+                          <span style={{color:"#64748b"}}>{linha.linhaAntes || ""}</span>
+                          <span style={{color:"#64748b"}}>{linha.linhaDepois || ""}</span>
+                          <span style={{whiteSpace:"pre"}}>{(linha.tipo === "adicionada"?"+":linha.tipo === "removida"?"-":" ") + linha.valor}</span>
+                        </div>
+                      ))}
+                      {!diffInfo.linhas.length && <div style={{padding:16,color:"#64748b"}}>Nenhuma diferença detectada.</div>}
+                    </div>
+                  )}
+                  <div style={styles.diffActions}>
+                    <button style={styles.secondaryButton} onClick={()=>setMostrarDiff(false)}>Voltar</button>
+                    <button style={styles.primaryButton} onClick={persistirArquivo}>Aplicar alterações</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={styles.chatDock(chatColapsado)}>
+          <div style={styles.chatHeader}>
+            <span>Chat com o agente</span>
+            <button style={styles.toggleBtn} onClick={()=>setChatColapsado((v)=>!v)}>{chatColapsado?"▲":"▼"}</button>
+          </div>
+          {!chatColapsado && (
+            <>
+              <div style={styles.chatMessages}>
+                {chat.map((m,i)=>(
+                  <div key={i} style={styles.chatBubble(m.autor)}>
+                    <strong style={{fontSize:11,letterSpacing:0.6,color:"rgba(226,232,240,0.75)"}}>{m.autor}</strong>
+                    <span style={{whiteSpace:"pre-wrap",fontSize:13}}>{m.texto}</span>
+                  </div>
+                ))}
+                {!chat.length && <div style={{color:"#475569",fontSize:13}}>Converse com o agente para orientar edições e automatizar fluxos.</div>}
+              </div>
+              <div style={styles.chatInputRow}>
+                <textarea style={styles.chatInput} placeholder="Descreva a alteração desejada..." value={entradaChat} onChange={(e)=>setEntradaChat(e.target.value)} onKeyDown={(e)=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviar_chat(entradaChat); } }} />
+                <button style={styles.primaryButton} onClick={()=>enviar_chat(entradaChat)}>Enviar</button>
+              </div>
+            </>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
