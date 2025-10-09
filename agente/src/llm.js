@@ -1,4 +1,4 @@
-import "dotenv/config";
+﻿import "dotenv/config";
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const LLM_MODEL = process.env.LLM_MODEL || "qwen3-coder:480b-cloud";
@@ -42,10 +42,10 @@ async function pickModel(){
 }
 
 export async function pedir_plano(contexto, tarefa) {
-  const prompt = `Você é um engenheiro de software. Gere um plano conciso:
+  const prompt = `VocÃª Ã© um engenheiro de software. Gere um plano conciso:
 - Objetivos
 - Passos (1..N)
-- Critérios de Aceite
+- CritÃ©rios de Aceite
 
 Contexto: ${contexto}
 Tarefa: ${JSON.stringify(tarefa, null, 2)}
@@ -74,7 +74,7 @@ Responda em JSON com chaves: objetivos, passos, criteriosAceite.`;
 export async function chat_simples(mensagem, contexto = ""){
   try{
     const model = await pickModel();
-    const prompt = `${contexto ? `Contexto:\n${contexto}\n\n` : ""}Usuário: ${mensagem}\nAssistente:`;
+    const prompt = `${contexto ? `Contexto:\n${contexto}\n\n` : ""}UsuÃ¡rio: ${mensagem}\nAssistente:`;
     let r = await fetch(`${OLLAMA_URL}/api/generate`,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
@@ -100,8 +100,9 @@ export async function chat_simples(mensagem, contexto = ""){
     const data = await r.json();
     return data?.response || data?.message?.content || "";
   }catch(e){
-    return `Ollama indisponível ou modelo não carregado. Detalhes: ${e?.message||e}`;
+    return `Ollama indisponÃ­vel ou modelo nÃ£o carregado. Detalhes: ${e?.message||e}`;
   }
 }
 
 export { OLLAMA_URL, LLM_MODEL };
+

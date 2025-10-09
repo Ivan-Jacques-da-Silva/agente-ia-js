@@ -1,4 +1,4 @@
-import os from "node:os";
+﻿import os from "node:os";
 import path from "node:path";
 import { pedir_plano } from "./llm.js";
 import {
@@ -27,8 +27,8 @@ index e69de29..b1f4a1e 100644
 --- a/README.md
 +++ b/README.md
 @@ -0,0 +1,3 @@
-+# Atualização pelo Agente
-+- Ajuste automático de documentação.
++# AtualizaÃ§Ã£o pelo Agente
++- Ajuste automÃ¡tico de documentaÃ§Ã£o.
 +
 `;
     try {
@@ -40,7 +40,7 @@ index e69de29..b1f4a1e 100644
 
   const depois = await rodar_testes(pasta);
   try {
-    await commit_e_push(pasta, "feat: alteração automática via Agente");
+    await commit_e_push(pasta, "feat: alteraÃ§Ã£o automÃ¡tica via Agente");
   } catch {}
   return {
     plano,
@@ -49,4 +49,5 @@ index e69de29..b1f4a1e 100644
     testesDepois: (depois || "").slice(0, 2000),
   };
 }
+
 
