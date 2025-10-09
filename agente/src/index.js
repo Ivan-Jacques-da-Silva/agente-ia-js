@@ -12,6 +12,7 @@ import {
   buscarProjetoPorUrl,
   buscarProjetoPorCaminho,
   atualizarUltimoAcesso,
+  atualizarCaminhoProjeto,
   criarMudancaPendente,
   buscarMudancasPendentes,
   aprovarMudanca,
@@ -43,6 +44,44 @@ const estado = {
   projetoId: null,
   url: null,
 };
+
+async function pathExists(target) {
+  try {
+    await fs.promises.access(target, fs.constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeWorkspaceName(nome) {
+  if (!nome) return "workspace";
+  return nome
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase() || "workspace";
+}
+
+async function resolveWorkspaceDirectory(nomeProjeto) {
+  const baseDir = path.join(os.homedir(), "download", "agente");
+  await fs.promises.mkdir(baseDir, { recursive: true });
+  const safeName = sanitizeWorkspaceName(nomeProjeto);
+  let destino = path.join(baseDir, safeName);
+  let contador = 1;
+
+  while (await pathExists(destino)) {
+    destino = path.join(baseDir, `${safeName}_${contador}`);
+    contador += 1;
+    if (contador > 50) {
+      destino = path.join(baseDir, `${safeName}_${Date.now()}`);
+      break;
+    }
+  }
+
+  return destino;
+}
 
 async function listar_arvore(base) {
   const ignorar = new Set([".git", "node_modules", ".next", "dist", "build", ".agent"]);
@@ -86,27 +125,38 @@ app.post("/repo/abrir", async (req, res) => {
       projetoExistente = buscarProjetoPorUrl(repositorioUrl);
     }
 
+      const nomeProjeto = repositorioUrl
+      ? repositorioUrl.split("/").pop().replace(".git", "")
+      : caminhoLocal
+        ? path.basename(caminhoLocal)
+        : "projeto";
+
     if (!projetoExistente) {
-      if (!caminhoLocal) {
-        pasta = path.join(os.tmpdir(), `repo_${Date.now()}`);
+      if (!caminhoLocal && repositorioUrl) {
+        pasta = await resolveWorkspaceDirectory(nomeProjeto);
         await clonar_repositorio(repositorioUrl, pasta, token);
         await criar_branch(pasta, `agente/${Date.now()}`, branchBase);
       }
-
-      const nomeProjeto = repositorioUrl
-        ? repositorioUrl.split("/").pop().replace(".git", "")
-        : path.basename(caminhoLocal);
 
       const projetoId = criarProjeto(nomeProjeto, repositorioUrl || "", pasta, branchBase || "main");
       projetoExistente = { id: projetoId, nome: nomeProjeto };
       registrarHistorico(projetoId, "projeto_criado", "Projeto aberto pela primeira vez");
     } else {
       pasta = projetoExistente.caminho_local;
+      const projetoNome = projetoExistente.nome || nomeProjeto;
+
       if (!pasta && repositorioUrl) {
-        pasta = path.join(os.tmpdir(), `repo_${Date.now()}`);
+        pasta = await resolveWorkspaceDirectory(projetoNome);
         await clonar_repositorio(repositorioUrl, pasta, token);
         await criar_branch(pasta, `agente/${Date.now()}`, branchBase);
+        atualizarCaminhoProjeto(projetoExistente.id, pasta);
+      } else if (pasta && repositorioUrl && !(await pathExists(pasta))) {
+        pasta = await resolveWorkspaceDirectory(projetoNome);
+        await clonar_repositorio(repositorioUrl, pasta, token);
+        await criar_branch(pasta, `agente/${Date.now()}`, branchBase);
+        atualizarCaminhoProjeto(projetoExistente.id, pasta);
       }
+
       atualizarUltimoAcesso(projetoExistente.id);
       registrarHistorico(projetoExistente.id, "projeto_reaberto", "Projeto reaberto");
     }
@@ -236,7 +286,7 @@ app.post("/chat/inteligente", async (req, res) => {
         );
       }
 
-      const resposta = `Analisei sua solicitação e preparei ${resultado.mudancas.length} alteração(ões). Revise as mudanças pendentes e aprove para aplicar.`;
+      const resposta = `Analisei sua solicita��ão e preparei ${resultado.mudancas.length} alteração(ões). Revise as mudanças pendentes e aprove para aplicar.`;
 
       salvarConversa(estado.projetoId, mensagem, resposta, JSON.stringify(resultado.analise));
       registrarHistorico(estado.projetoId, "mudancas_propostas", `${resultado.mudancas.length} alterações propostas`);

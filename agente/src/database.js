@@ -101,6 +101,15 @@ export function atualizarUltimoAcesso(projetoId) {
   stmt.run(projetoId);
 }
 
+export function atualizarCaminhoProjeto(projetoId, caminho) {
+  const stmt = db.prepare(`
+    UPDATE projetos
+    SET caminho_local = ?, ultimo_acesso = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `);
+  stmt.run(caminho, projetoId);
+}
+
 export function salvarContextoArquivo(projetoId, caminho, conteudo, analise = null) {
   const hash = Buffer.from(conteudo).toString("base64").slice(0, 32);
   const stmt = db.prepare(`

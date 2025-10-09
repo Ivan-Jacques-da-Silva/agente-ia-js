@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "./app.css";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
 
@@ -167,6 +168,61 @@ function useEndpointResolver(candidates, healthPath) {
   return { base, status };
 }
 
+function classNames(...classes) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function createMessage(role, text, options = {}) {
+  return {
+    id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    role,
+    text,
+    pending: Boolean(options.pending),
+    timestamp: options.timestamp || new Date().toISOString(),
+  };
+}
+
+function mapConversasParaMensagens(lista = []) {
+  const mensagens = [];
+  lista.forEach((item, index) => {
+    if (item.mensagem) {
+      mensagens.push({
+        id: `hist-${index}-user`,
+        role: "user",
+        text: item.mensagem,
+        timestamp: item.timestamp,
+      });
+    }
+    if (item.resposta) {
+      mensagens.push({
+        id: `hist-${index}-agent`,
+        role: "agent",
+        text: item.resposta,
+        timestamp: item.timestamp,
+      });
+    }
+  });
+  return mensagens;
+}
+
+function extractFileFromDescription(descricao) {
+  if (!descricao) return null;
+  const match = descricao.match(/Arquivo\s+(.+?)\s+(salvo|alterado)/i);
+  return match ? match[1] : null;
+}
+
+function formatTimestamp(timestamp) {
+  if (!timestamp) return "";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(timestamp));
+  } catch {
+    return timestamp;
+  }
+}
+
 export default function App() {
   const { base: agenteUrl, status: agenteStatus } = useEndpointResolver(AGENTE_CANDIDATES, "/saude");
 
@@ -175,12 +231,13 @@ export default function App() {
   const [branchBase, setBranchBase] = useState("main");
   const [erro, setErro] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
 
   const [arvore, setArvore] = useState([]);
   const [arquivoAtual, setArquivoAtual] = useState("");
   const [conteudo, setConteudo] = useState("");
   const [original, setOriginal] = useState("");
-  const [chat, setChat] = useState([]);
+  const [chatMessages, setChatMessages] = useState([]);
   const [entradaChat, setEntradaChat] = useState("");
   const [explorerColapsado, setExplorerColapsado] = useState(false);
   const [chatColapsado, setChatColapsado] = useState(false);
@@ -189,7 +246,12 @@ export default function App() {
   const [mudancasPendentes, setMudancasPendentes] = useState([]);
   const [mostrarMudancas, setMostrarMudancas] = useState(false);
   const [historico, setHistorico] = useState([]);
-  const [mostrarHistorico, setMostrarHistorico] = useState(false);
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState("editor");
+  const [chatWidth, setChatWidth] = useState(360);
+  const [isResizingChat, setIsResizingChat] = useState(false);
+
+  const chatResizeDataRef = useRef(null);
+  const chatListRef = useRef(null);
 
   const dirty = conteudo !== original;
 
@@ -205,15 +267,44 @@ export default function App() {
     return true;
   }, [agenteStatus]);
 
+  const runWithLoading = useCallback(async (message, task) => {
+    setLoading(true);
+    setLoadingMessage(message || "Processando...");
+    try {
+      await task();
+    } finally {
+      setLoading(false);
+      setLoadingMessage("");
+    }
+  }, []);
+
+  const carregarMudancasPendentes = useCallback(async () => {
+    if (!requireAgentReady()) return;
+    try {
+      const r = await fetch(buildUrl(agenteUrl, "/mudancas/pendentes"));
+      const j = await parseJsonResponse(r, "Falha ao carregar mudan��as");
+      setMudancasPendentes(j.mudancas || []);
+    } catch (e) {
+      console.error("Erro ao carregar mudanças:", e);
+    }
+  }, [agenteUrl, requireAgentReady]);
+
+  const carregarHistorico = useCallback(async () => {
+    if (!requireAgentReady()) return;
+    try {
+      const r = await fetch(buildUrl(agenteUrl, "/historico"));
+      const j = await parseJsonResponse(r, "Falha ao carregar histórico");
+      setHistorico(j.historico || []);
+    } catch (e) {
+      console.error("Erro ao carregar histórico:", e);
+    }
+  }, [agenteUrl, requireAgentReady]);
+
   async function abrir_repo() {
     setErro("");
-    setLoading(true);
-    if (!requireAgentReady()) {
-      setLoading(false);
-      return;
-    }
+    if (!requireAgentReady()) return;
 
-    try {
+    await runWithLoading("Lendo repositório...", async () => {
       const body = {};
       if (caminhoLocal) {
         body.caminhoLocal = caminhoLocal;
@@ -233,14 +324,12 @@ export default function App() {
       const j = await parseJsonResponse(r, "Falha ao abrir repositório");
       setArvore(j.arvore || []);
       setProjetoAtual(j.projeto);
-      setChat(j.conversas || []);
+      setChatMessages(mapConversasParaMensagens(j.conversas));
       setHistorico(j.historico || []);
+      setActiveWorkspaceTab("editor");
+      setChatColapsado(false);
       await carregarMudancasPendentes();
-    } catch (e) {
-      setErro(String(e?.message || e));
-    } finally {
-      setLoading(false);
-    }
+    });
   }
 
   async function abrir_arquivo(p) {
@@ -259,9 +348,8 @@ export default function App() {
   async function persistirArquivo() {
     if (!arquivoAtual) return;
     if (!requireAgentReady()) return;
-    setLoading(true);
 
-    try {
+    await runWithLoading("Salvando arquivo...", async () => {
       const r = await fetch(buildUrl(agenteUrl, "/repo/save"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -271,18 +359,15 @@ export default function App() {
       await parseJsonResponse(r, "Falha ao salvar arquivo");
       setOriginal(conteudo);
       setErro("");
-    } catch (e) {
-      setErro(String(e?.message || e));
-    } finally {
-      setLoading(false);
-    }
+      await carregarMudancasPendentes();
+      await carregarHistorico();
+    });
   }
 
   async function commit_push() {
     if (!requireAgentReady()) return;
-    setLoading(true);
 
-    try {
+    await runWithLoading("Realizando commit...", async () => {
       const r = await fetch(buildUrl(agenteUrl, "/repo/commit"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -291,12 +376,9 @@ export default function App() {
 
       await parseJsonResponse(r, "Falha ao realizar commit");
       setErro("");
+      await carregarHistorico();
       alert("Commit realizado com sucesso!");
-    } catch (e) {
-      setErro(String(e?.message || e));
-    } finally {
-      setLoading(false);
-    }
+    });
   }
 
   async function enviar_chat(texto) {
@@ -307,10 +389,13 @@ export default function App() {
       return;
     }
 
-    const novo = [...chat, { mensagem: msg, resposta: "..." }];
-    setChat(novo);
+    const userMessage = createMessage("user", msg);
+    const placeholder = createMessage("agent", "Digitando...", { pending: true });
+
+    setChatMessages((prev) => [...prev, userMessage, placeholder]);
     setEntradaChat("");
     setLoading(true);
+    setLoadingMessage("Consultando agente...");
 
     try {
       const r = await fetch(buildUrl(agenteUrl, "/chat/inteligente"), {
@@ -320,42 +405,37 @@ export default function App() {
       });
 
       const j = await parseJsonResponse(r, "Falha ao enviar mensagem");
-      setChat((prev) => [
-        ...prev.slice(0, -1),
-        { mensagem: msg, resposta: j.resposta || "Sem resposta" },
-      ]);
+      setChatMessages((prev) =>
+        prev.map((item) =>
+          item.id === placeholder.id
+            ? { ...item, text: j.resposta || "Sem resposta", pending: false }
+            : item
+        )
+      );
 
       if (j.mudancas > 0) {
         await carregarMudancasPendentes();
         setMostrarMudancas(true);
       }
+      await carregarHistorico();
     } catch (e) {
-      setChat((prev) => [
-        ...prev.slice(0, -1),
-        { mensagem: msg, resposta: `Erro: ${e?.message || e}` },
-      ]);
+      setChatMessages((prev) =>
+        prev.map((item) =>
+          item.id === placeholder.id
+            ? { ...item, text: `Erro: ${e?.message || e}`, pending: false }
+            : item
+        )
+      );
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function carregarMudancasPendentes() {
-    if (!requireAgentReady()) return;
-
-    try {
-      const r = await fetch(buildUrl(agenteUrl, "/mudancas/pendentes"));
-      const j = await parseJsonResponse(r, "Falha ao carregar mudanças");
-      setMudancasPendentes(j.mudancas || []);
-    } catch (e) {
-      console.error("Erro ao carregar mudanças:", e);
+      setLoadingMessage("");
     }
   }
 
   async function aprovarMudanca(mudancaId) {
     if (!requireAgentReady()) return;
-    setLoading(true);
 
-    try {
+    await runWithLoading("Aplicando mudança...", async () => {
       const r = await fetch(buildUrl(agenteUrl, "/mudancas/aprovar"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -364,20 +444,16 @@ export default function App() {
 
       await parseJsonResponse(r, "Falha ao aprovar mudança");
       await carregarMudancasPendentes();
+      await carregarHistorico();
       setErro("");
       alert("Mudança aprovada e aplicada!");
-    } catch (e) {
-      setErro(String(e?.message || e));
-    } finally {
-      setLoading(false);
-    }
+    });
   }
 
   async function rejeitarMudanca(mudancaId) {
     if (!requireAgentReady()) return;
-    setLoading(true);
 
-    try {
+    await runWithLoading("Rejeitando mudança...", async () => {
       const r = await fetch(buildUrl(agenteUrl, "/mudancas/rejeitar"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -386,12 +462,9 @@ export default function App() {
 
       await parseJsonResponse(r, "Falha ao rejeitar mudança");
       await carregarMudancasPendentes();
+      await carregarHistorico();
       setErro("");
-    } catch (e) {
-      setErro(String(e?.message || e));
-    } finally {
-      setLoading(false);
-    }
+    });
   }
 
   const arvoreEstruturada = useMemo(() => buildTree(arvore), [arvore]);
@@ -410,353 +483,57 @@ export default function App() {
     setDiretoriosAbertos((prev) => ({ ...inicial, ...prev }));
   }, [arvoreEstruturada]);
 
-  const styles = {
-    shell: {
-      display: "flex",
-      height: "100vh",
-      background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
-      color: "#e2e8f0",
-      fontFamily: "'Inter', system-ui, -apple-system, BlinkMacSystemFont",
+  useEffect(() => {
+    if (chatListRef.current) {
+      chatListRef.current.scrollTop = chatListRef.current.scrollHeight;
+    }
+  }, [chatMessages]);
+
+  useEffect(() => {
+    if (activeWorkspaceTab === "history") {
+      carregarHistorico();
+    }
+  }, [activeWorkspaceTab, carregarHistorico]);
+
+  const handleChatResize = useCallback((event) => {
+    if (!chatResizeDataRef.current) return;
+    const delta = chatResizeDataRef.current.startX - event.clientX;
+    const nextWidth = chatResizeDataRef.current.startWidth + delta;
+    const clamped = Math.min(520, Math.max(260, nextWidth));
+    setChatWidth(clamped);
+  }, []);
+
+  const stopChatResize = useCallback(() => {
+    chatResizeDataRef.current = null;
+    setIsResizingChat(false);
+    window.removeEventListener("mousemove", handleChatResize);
+    window.removeEventListener("mouseup", stopChatResize);
+  }, [handleChatResize]);
+
+  const startChatResize = useCallback(
+    (event) => {
+      if (chatColapsado) return;
+      event.preventDefault();
+      chatResizeDataRef.current = { startX: event.clientX, startWidth: chatWidth };
+      setIsResizingChat(true);
+      window.addEventListener("mousemove", handleChatResize);
+      window.addEventListener("mouseup", stopChatResize);
     },
-    sidebar: {
-      width: 320,
-      display: "flex",
-      flexDirection: "column",
-      gap: 24,
-      padding: "28px 22px",
-      background: "rgba(8,15,27,0.95)",
-      borderRight: "1px solid rgba(148,163,184,0.15)",
-      backdropFilter: "blur(18px)",
-      overflowY: "auto",
-    },
-    brand: {
-      display: "flex",
-      alignItems: "center",
-      gap: 12,
-    },
-    brandLogo: {
-      width: 48,
-      height: 48,
-      borderRadius: 14,
-      background: "linear-gradient(135deg,#10b981,#059669)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontWeight: 700,
-      fontSize: 24,
-    },
-    brandText: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 6,
-      fontWeight: 600,
-    },
-    section: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 12,
-    },
-    sectionHeader: {
-      fontSize: 13,
-      fontWeight: 600,
-      letterSpacing: 0.4,
-      color: "#cbd5f5",
-      marginBottom: 8,
-    },
-    statusCard: {
-      padding: "12px 14px",
-      borderRadius: 12,
-      background: agenteStatus === "ready" ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
-      border: `1px solid ${agenteStatus === "ready" ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)"}`,
-      fontSize: 13,
-      fontWeight: 600,
-    },
-    input: {
-      padding: "10px 12px",
-      borderRadius: 10,
-      border: "1px solid rgba(148,163,184,0.2)",
-      background: "rgba(15,23,42,0.55)",
-      color: "#f8fafc",
-      fontSize: 13,
-      width: "100%",
-      boxSizing: "border-box",
-    },
-    primaryButton: {
-      padding: "10px 16px",
-      borderRadius: 10,
-      border: 0,
-      background: "linear-gradient(135deg,#10b981,#059669)",
-      color: "#fff",
-      fontWeight: 600,
-      cursor: loading ? "not-allowed" : "pointer",
-      display: "flex",
-      gap: 8,
-      alignItems: "center",
-      justifyContent: "center",
-      boxShadow: "0 12px 28px rgba(16,185,129,0.28)",
-      opacity: loading ? 0.6 : 1,
-    },
-    secondaryButton: {
-      padding: "10px 14px",
-      borderRadius: 10,
-      border: "1px solid rgba(148,163,184,0.3)",
-      background: "rgba(15,23,42,0.35)",
-      color: "#e2e8f0",
-      fontWeight: 500,
-      cursor: loading ? "not-allowed" : "pointer",
-      opacity: loading ? 0.6 : 1,
-    },
-    main: {
-      flex: 1,
-      display: "flex",
-      flexDirection: "column",
-      padding: "28px 30px",
-      gap: 20,
-      overflow: "hidden",
-    },
-    chrome: {
-      background: "rgba(10,12,23,0.85)",
-      borderRadius: 20,
-      border: "1px solid rgba(148,163,184,0.16)",
-      boxShadow: "0 30px 80px -30px rgba(15,23,42,0.6)",
-      display: "flex",
-      flexDirection: "column",
-      flex: 1,
-      overflow: "hidden",
-    },
-    windowBar: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "16px 22px",
-      borderBottom: "1px solid rgba(148,163,184,0.18)",
-      background: "rgba(15,23,42,0.75)",
-    },
-    windowDots: {
-      display: "flex",
-      gap: 8,
-    },
-    windowDot: (color) => ({
-      width: 12,
-      height: 12,
-      borderRadius: "50%",
-      background: color,
-      boxShadow: `0 0 0 1px rgba(0,0,0,0.25)`,
-    }),
-    tabBar: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "12px 18px",
-      background: "rgba(9,10,22,0.95)",
-      borderBottom: "1px solid rgba(148,163,184,0.18)",
-    },
-    tab: {
-      padding: "8px 14px",
-      borderRadius: 10,
-      fontSize: 13,
-      background: arquivoAtual ? "linear-gradient(135deg,#10b981,#059669)" : "rgba(15,23,42,0.75)",
-      color: "#e2e8f0",
-    },
-    errorBanner: {
-      padding: "10px 18px",
-      background: "rgba(248,113,113,0.15)",
-      borderBottom: "1px solid rgba(248,113,113,0.45)",
-      color: "#fecaca",
-      fontSize: 13,
-    },
-    workspace: {
-      flex: 1,
-      display: "flex",
-      overflow: "hidden",
-      background: "rgba(2,6,23,0.9)",
-    },
-    explorer: (colapsado) => ({
-      width: colapsado ? 56 : 260,
-      transition: "width .25s ease",
-      borderRight: "1px solid rgba(148,163,184,0.12)",
-      background: "rgba(6,11,25,0.92)",
-      display: "flex",
-      flexDirection: "column",
-    }),
-    explorerHeader: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "14px 16px",
-      borderBottom: "1px solid rgba(148,163,184,0.12)",
-      fontSize: 12,
-      letterSpacing: 0.3,
-      fontWeight: 600,
-      color: "#cbd5f5",
-    },
-    explorerBody: {
-      flex: 1,
-      overflow: "auto",
-      padding: "12px 10px 40px",
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-      fontSize: 12,
-      display: "flex",
-      flexDirection: "column",
-      gap: 4,
-    },
-    treeNode: (ativo) => ({
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      padding: "6px 8px",
-      borderRadius: 8,
-      cursor: "pointer",
-      background: ativo ? "rgba(16,185,129,0.25)" : "transparent",
-      color: "#cbd5f5",
-      transition: "background .2s",
-    }),
-    treeIndent: (nivel) => ({
-      marginLeft: nivel * 16,
-    }),
-    editorCol: {
-      flex: 1,
-      display: "flex",
-      flexDirection: "column",
-    },
-    editorSurface: {
-      flex: 1,
-      position: "relative",
-      background: "#0f172a",
-    },
-    editorTextarea: {
-      position: "absolute",
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      width: "100%",
-      height: "100%",
-      background: "transparent",
-      color: "#e2e8f0",
-      border: 0,
-      padding: "22px 28px",
-      fontSize: 14,
-      lineHeight: 1.6,
-      fontFamily: "'Fira Code', 'JetBrains Mono', ui-monospace, monospace",
-      resize: "none",
-    },
-    diffBar: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "14px 18px",
-      borderTop: "1px solid rgba(148,163,184,0.14)",
-      background: "rgba(15,23,42,0.85)",
-      fontSize: 13,
-    },
-    chatDock: (colapsado) => ({
-      marginTop: 18,
-      background: "rgba(8,12,25,0.92)",
-      border: "1px solid rgba(148,163,184,0.16)",
-      borderRadius: 18,
-      overflow: "hidden",
-      transition: "height .25s ease",
-      height: colapsado ? 54 : 320,
-      display: "flex",
-      flexDirection: "column",
-    }),
-    chatHeader: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "14px 18px",
-      borderBottom: "1px solid rgba(148,163,184,0.14)",
-      fontWeight: 600,
-      fontSize: 13,
-      color: "#cbd5f5",
-    },
-    chatMessages: {
-      flex: 1,
-      overflow: "auto",
-      padding: "18px 22px",
-      display: "flex",
-      flexDirection: "column",
-      gap: 12,
-    },
-    chatBubble: (isUser) => ({
-      alignSelf: isUser ? "flex-end" : "flex-start",
-      maxWidth: "70%",
-      background: isUser ? "rgba(16,185,129,0.25)" : "rgba(15,23,42,0.6)",
-      border: "1px solid rgba(148,163,184,0.2)",
-      borderRadius: isUser ? "16px 16px 0 16px" : "16px 16px 16px 0",
-      padding: "12px 14px",
-      display: "grid",
-      gap: 6,
-      color: "#e2e8f0",
-    }),
-    chatInputRow: {
-      display: "flex",
-      gap: 12,
-      padding: "16px 18px",
-      borderTop: "1px solid rgba(148,163,184,0.16)",
-      background: "rgba(10,12,23,0.92)",
-    },
-    chatInput: {
-      flex: 1,
-      minHeight: 44,
-      borderRadius: 12,
-      border: "1px solid rgba(148,163,184,0.25)",
-      background: "rgba(15,23,42,0.55)",
-      color: "#e2e8f0",
-      padding: "10px 12px",
-      fontSize: 13,
-      fontFamily: "'Inter', system-ui",
-      resize: "none",
-    },
-    modal: {
-      position: "fixed",
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      background: "rgba(0,0,0,0.7)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      zIndex: 1000,
-    },
-    modalContent: {
-      background: "rgba(15,23,42,0.98)",
-      border: "1px solid rgba(148,163,184,0.3)",
-      borderRadius: 20,
-      padding: 30,
-      maxWidth: "80%",
-      maxHeight: "80%",
-      overflow: "auto",
-      boxShadow: "0 50px 100px rgba(0,0,0,0.5)",
-    },
-    mudancaCard: {
-      background: "rgba(6,11,25,0.8)",
-      border: "1px solid rgba(148,163,184,0.2)",
-      borderRadius: 14,
-      padding: 18,
-      marginBottom: 16,
-    },
-    diffPreview: {
-      fontFamily: "ui-monospace, monospace",
-      fontSize: 12,
-      background: "rgba(2,6,23,0.9)",
-      padding: 12,
-      borderRadius: 10,
-      maxHeight: 300,
-      overflow: "auto",
-      whiteSpace: "pre",
-      color: "#cbd5f5",
-      marginTop: 12,
-    },
-  };
+    [chatColapsado, chatWidth, handleChatResize, stopChatResize]
+  );
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener("mousemove", handleChatResize);
+      window.removeEventListener("mouseup", stopChatResize);
+    };
+  }, [handleChatResize, stopChatResize]);
 
   const renderNode = (node, nivel = 0) => {
     const isDir = node.tipo === "dir";
     const aberto = diretoriosAbertos[node.fullPath] ?? true;
 
-    const handleClick = () => {
+    const toggle = () => {
       if (isDir) {
         setDiretoriosAbertos((prev) => ({ ...prev, [node.fullPath]: !aberto }));
       } else {
@@ -765,222 +542,295 @@ export default function App() {
     };
 
     return (
-      <div key={node.fullPath}>
-        <div
-          style={{ ...styles.treeIndent(nivel), ...styles.treeNode(arquivoAtual === node.fullPath) }}
-          onClick={handleClick}
+      <div key={node.fullPath} className="file-tree-branch">
+        <button
+          type="button"
+          onClick={toggle}
+          className={classNames(
+            "file-tree-item",
+            isDir && "file-tree-item--directory",
+            isDir && aberto && "is-open",
+            arquivoAtual === node.fullPath && "is-active"
+          )}
+          style={{ "--indent-level": nivel }}
         >
-          <span style={{ fontSize: 12 }}>{isDir ? (aberto ? "▾" : "▸") : ""}</span>
-          <span>{isDir ? (aberto ? "📂" : "📁") : "📄"}</span>
-          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {node.nome}
-          </span>
-        </div>
+          <span className="file-tree-expander">{isDir ? (aberto ? "▾" : "▸") : ""}</span>
+          <span className="file-tree-icon">{isDir ? (aberto ? "📂" : "📁") : "📄"}</span>
+          <span className="file-tree-label">{node.nome}</span>
+        </button>
         {isDir && aberto && node.children && node.children.map((filho) => renderNode(filho, nivel + 1))}
       </div>
     );
   };
 
   return (
-    <div style={styles.shell}>
-      <aside style={styles.sidebar}>
-        <div style={styles.brand}>
-          <div style={styles.brandLogo}>🤖</div>
-          <div style={styles.brandText}>
-            <span style={{ fontSize: 16 }}>Agente IA</span>
-            <span style={{ fontSize: 12, color: "#64748b" }}>Sistema de Desenvolvimento</span>
+    <div className="app-shell">
+      <aside className="app-sidebar">
+        <div className="brand-header">
+          <div className="brand-logo">🤖</div>
+          <div className="brand-copy">
+            <span className="brand-title">Agente IA</span>
+            <span className="brand-subtitle">Sistema de Desenvolvimento</span>
           </div>
         </div>
 
-        <div style={styles.section}>
-          <div style={styles.sectionHeader}>Status da Conexão</div>
-          <div style={styles.statusCard}>
+        <section className="sidebar-section">
+          <h2 className="section-title">Status da Conexão</h2>
+          <div
+            className={classNames(
+              "status-card",
+              agenteStatus === "ready" && "status-card--ready",
+              agenteStatus === "failed" && "status-card--failed"
+            )}
+          >
             {agenteStatus === "ready" ? "✓ Conectado" : agenteStatus === "resolving" ? "⏳ Conectando..." : "✗ Desconectado"}
           </div>
-        </div>
+        </section>
 
         {projetoAtual && (
-          <div style={styles.section}>
-            <div style={styles.sectionHeader}>Projeto Atual</div>
-            <div style={{ ...styles.statusCard, background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)" }}>
-              {projetoAtual.nome}
-            </div>
-          </div>
+          <section className="sidebar-section">
+            <h2 className="section-title">Projeto Atual</h2>
+            <div className="project-card">{projetoAtual.nome}</div>
+          </section>
         )}
 
-        <div style={styles.section}>
-          <div style={styles.sectionHeader}>Abrir Projeto</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, color: "#64748b" }}>
-                Caminho Local
-              </label>
-              <input
-                style={styles.input}
-                placeholder="/caminho/para/projeto"
-                value={caminhoLocal}
-                onChange={(e) => setCaminhoLocal(e.target.value)}
-              />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, color: "#64748b" }}>
-                URL do Repositório
-              </label>
-              <input
-                style={styles.input}
-                placeholder="https://github.com/org/projeto"
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-              />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, color: "#64748b" }}>
-                Branch Base
-              </label>
-              <input
-                style={styles.input}
-                placeholder="main"
-                value={branchBase}
-                onChange={(e) => setBranchBase(e.target.value)}
-              />
-            </div>
-            <button style={styles.primaryButton} onClick={abrir_repo} disabled={loading}>
-              {loading ? "Abrindo..." : "Abrir Projeto"}
+        <section className="sidebar-section">
+          <h2 className="section-title">Abrir Projeto</h2>
+          <div className="field-grid">
+            <label className="field-label" htmlFor="caminhoLocal">Caminho Local</label>
+            <input
+              id="caminhoLocal"
+              className="form-input"
+              placeholder="/caminho/para/projeto"
+              value={caminhoLocal}
+              onChange={(e) => setCaminhoLocal(e.target.value)}
+            />
+            <label className="field-label" htmlFor="repoUrl">URL do Repositório</label>
+            <input
+              id="repoUrl"
+              className="form-input"
+              placeholder="https://github.com/org/projeto"
+              value={repo}
+              onChange={(e) => setRepo(e.target.value)}
+            />
+            <label className="field-label" htmlFor="branchBase">Branch Base</label>
+            <input
+              id="branchBase"
+              className="form-input"
+              placeholder="main"
+              value={branchBase}
+              onChange={(e) => setBranchBase(e.target.value)}
+            />
+            <button className="button button-primary" onClick={abrir_repo} disabled={loading}>
+              {loading ? "Processando..." : "Abrir Projeto"}
             </button>
           </div>
-        </div>
+        </section>
 
         {mudancasPendentes.length > 0 && (
-          <div style={styles.section}>
+          <section className="sidebar-section">
             <button
-              style={{ ...styles.primaryButton, background: "linear-gradient(135deg,#f59e0b,#d97706)" }}
+              className="button button-attention"
+              type="button"
               onClick={() => setMostrarMudancas(true)}
+              disabled={loading}
             >
-              {mudancasPendentes.length} Mudança(s) Pendente(s)
+              {mudancasPendentes.length} mudança(s) pendente(s)
             </button>
-          </div>
+          </section>
         )}
       </aside>
 
-      <main style={styles.main}>
-        <div style={styles.chrome}>
-          <div style={styles.windowBar}>
-            <div style={styles.windowDots}>
-              <div style={styles.windowDot("#ef4444")} />
-              <div style={styles.windowDot("#facc15")} />
-              <div style={styles.windowDot("#22c55e")} />
+      <main className="main-content">
+        <div className="window-chrome">
+          <div className="window-bar">
+            <div className="window-dots">
+              <span className="window-dot window-dot--red" />
+              <span className="window-dot window-dot--yellow" />
+              <span className="window-dot window-dot--green" />
             </div>
-            <div style={{ marginLeft: 12, fontSize: 13, color: "#94a3b8" }}>Editor do Agente</div>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
-              <button style={styles.secondaryButton} onClick={() => setExplorerColapsado((v) => !v)} disabled={loading}>
-                {explorerColapsado ? "Mostrar" : "Ocultar"} Árvore
+            <span className="window-title">Editor do Agente</span>
+            <div className="window-actions">
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => setExplorerColapsado((v) => !v)}
+                disabled={loading}
+              >
+                {explorerColapsado ? "Mostrar árvore" : "Ocultar árvore"}
               </button>
               {dirty && (
-                <button style={styles.primaryButton} onClick={persistirArquivo} disabled={loading}>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={persistirArquivo}
+                  disabled={loading}
+                >
                   Salvar Arquivo
                 </button>
               )}
-              <button style={styles.secondaryButton} onClick={commit_push} disabled={loading}>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={commit_push}
+                disabled={loading}
+              >
                 Commit & Push
               </button>
             </div>
           </div>
 
-          <div style={styles.tabBar}>
-            <div style={styles.tab}>{arquivoAtual || "Sem arquivo aberto"}</div>
-          </div>
-
-          {erro && <div style={styles.errorBanner}>{erro}</div>}
-
-          <div style={styles.workspace}>
-            <div style={styles.explorer(explorerColapsado)}>
-              <div style={styles.explorerHeader}>
-                <span>{explorerColapsado ? "" : "Explorador"}</span>
-                <button style={styles.secondaryButton} onClick={() => setExplorerColapsado((v) => !v)}>
-                  {explorerColapsado ? "▸" : "▾"}
-                </button>
-              </div>
-              {!explorerColapsado && (
-                <div style={styles.explorerBody}>
-                  {arvoreEstruturada.length ? (
-                    arvoreEstruturada.map((n) => renderNode(n))
-                  ) : (
-                    <div style={{ color: "#475569", padding: "12px 6px" }}>Nenhum projeto carregado.</div>
-                  )}
-                </div>
-              )}
+          <div className="tab-bar">
+            <div className="tab-group">
+              <button
+                type="button"
+                className={classNames("tab-item", activeWorkspaceTab === "editor" && "is-active")}
+                onClick={() => setActiveWorkspaceTab("editor")}
+              >
+                Editor
+              </button>
+              <button
+                type="button"
+                className={classNames("tab-item", activeWorkspaceTab === "history" && "is-active")}
+                onClick={() => setActiveWorkspaceTab("history")}
+              >
+                Histórico
+              </button>
             </div>
+            <span className="tab-current">{arquivoAtual || "Sem arquivo aberto"}</span>
+          </div>
 
-            <div style={styles.editorCol}>
-              <div style={styles.editorSurface}>
-                <textarea
-                  value={conteudo}
-                  onChange={(e) => setConteudo(e.target.value)}
-                  style={styles.editorTextarea}
-                  placeholder="Selecione um arquivo para começar a edição"
-                />
-              </div>
-              {dirty && (
-                <div style={styles.diffBar}>
-                  <div style={{ display: "flex", flexDirection: "column" }}>
-                    <span>Alterações não salvas {arquivoAtual ? `em ${arquivoAtual}` : ""}</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <button
-                      style={styles.secondaryButton}
-                      onClick={() => {
-                        setConteudo(original);
-                      }}
-                      disabled={loading}
-                    >
-                      Descartar
-                    </button>
-                  </div>
+          {erro && <div className="error-banner">{erro}</div>}
+
+          <div
+            className="workspace-panels"
+            style={{ "--chat-panel-width": chatColapsado ? "0px" : `${chatWidth}px` }}
+          >
+            <div className="editor-stack">
+              <aside className={classNames("file-explorer", explorerColapsado && "is-collapsed")}>
+                <div className="file-explorer-header">
+                  <span>{explorerColapsado ? "" : "Explorador"}</span>
+                  <button
+                    type="button"
+                    className="button button-tertiary"
+                    onClick={() => setExplorerColapsado((v) => !v)}
+                  >
+                    {explorerColapsado ? "▸" : "▾"}
+                  </button>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div style={styles.chatDock(chatColapsado)}>
-          <div style={styles.chatHeader}>
-            <span>Chat com o Agente IA</span>
-            <button style={styles.secondaryButton} onClick={() => setChatColapsado((v) => !v)}>
-              {chatColapsado ? "▲" : "▼"}
-            </button>
-          </div>
-          {!chatColapsado && (
-            <>
-              <div style={styles.chatMessages}>
-                {chat.map((m, i) => (
-                  <div key={i} style={styles.chatBubble(m.mensagem && !m.resposta)}>
-                    {m.mensagem && (
-                      <>
-                        <strong style={{ fontSize: 11, letterSpacing: 0.6, color: "rgba(226,232,240,0.75)" }}>
-                          Você
-                        </strong>
-                        <span style={{ whiteSpace: "pre-wrap", fontSize: 13 }}>{m.mensagem}</span>
-                      </>
+                {!explorerColapsado && (
+                  <div className="file-tree">
+                    {arvoreEstruturada.length ? (
+                      arvoreEstruturada.map((nodo) => renderNode(nodo))
+                    ) : (
+                      <div className="empty-state">Nenhum projeto carregado.</div>
                     )}
-                    {m.resposta && (
-                      <div style={styles.chatBubble(false)}>
-                        <strong style={{ fontSize: 11, letterSpacing: 0.6, color: "rgba(226,232,240,0.75)" }}>
-                          Agente
-                        </strong>
-                        <span style={{ whiteSpace: "pre-wrap", fontSize: 13 }}>{m.resposta}</span>
+                  </div>
+                )}
+              </aside>
+
+              <section className="editor-content">
+                {activeWorkspaceTab === "editor" ? (
+                  <div className="editor-column">
+                    <div className="code-surface">
+                      <textarea
+                        value={conteudo}
+                        onChange={(e) => setConteudo(e.target.value)}
+                        className="code-textarea"
+                        placeholder="Selecione um arquivo para começar a edição"
+                      />
+                    </div>
+                    {dirty && (
+                      <div className="diff-bar">
+                        <div className="diff-info">
+                          <span>Alterações não salvas {arquivoAtual ? `em ${arquivoAtual}` : ""}</span>
+                          <button
+                            type="button"
+                            className="button button-tertiary"
+                            onClick={() => setConteudo(original)}
+                            disabled={loading}
+                          >
+                            Descartar alterações
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
-                ))}
-                {!chat.length && (
-                  <div style={{ color: "#475569", fontSize: 13 }}>
-                    Converse com o agente para orientar edições e automatizar fluxos.
+                ) : (
+                  <div className="history-panel">
+                    {historico.length ? (
+                      historico.map((item) => {
+                        const arquivo = extractFileFromDescription(item.descricao);
+                        return (
+                          <article key={`${item.timestamp}-${item.tipo}`} className="history-entry">
+                            <header className="history-entry-header">
+                              <span className="history-entry-type">{item.tipo.replace(/_/g, " ")}</span>
+                              <span className="history-entry-time">{formatTimestamp(item.timestamp)}</span>
+                            </header>
+                            {arquivo && <div className="history-entry-file">{arquivo}</div>}
+                            {item.descricao && <p className="history-entry-description">{item.descricao}</p>}
+                          </article>
+                        );
+                      })
+                    ) : (
+                      <div className="empty-state">Nenhum histórico disponível ainda.</div>
+                    )}
                   </div>
                 )}
+              </section>
+            </div>
+
+            {!chatColapsado && (
+              <div
+                className={classNames("resize-handle", isResizingChat && "is-active")}
+                onMouseDown={startChatResize}
+              />
+            )}
+
+            <aside className={classNames("chat-panel", chatColapsado && "is-collapsed")}>
+              <div className="chat-header">
+                <span className="chat-title">Chat com o Agente IA</span>
+                <div className="chat-actions">
+                  {mudancasPendentes.length > 0 && (
+                    <button
+                      type="button"
+                      className="button button-tertiary"
+                      onClick={() => setMostrarMudancas(true)}
+                    >
+                      Revisar mudanças ({mudancasPendentes.length})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="button button-tertiary"
+                    onClick={() => setChatColapsado((v) => !v)}
+                  >
+                    {chatColapsado ? "Abrir" : "Fechar"}
+                  </button>
+                </div>
               </div>
-              <div style={styles.chatInputRow}>
+              <div className="chat-message-list" ref={chatListRef}>
+                {chatMessages.length ? (
+                  chatMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={classNames(
+                        "chat-message",
+                        msg.role === "user" ? "chat-message--user" : "chat-message--agent",
+                        msg.pending && "is-pending"
+                      )}
+                    >
+                      <span className="chat-author">{msg.role === "user" ? "Você" : "Agente"}</span>
+                      <p className="chat-text">{msg.text}</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty-state">Converse com o agente para orientar edições e automatizar fluxos.</div>
+                )}
+              </div>
+              <div className="chat-composer">
                 <textarea
-                  style={styles.chatInput}
+                  className="chat-textarea"
                   placeholder="Descreva a alteração desejada..."
                   value={entradaChat}
                   onChange={(e) => setEntradaChat(e.target.value)}
@@ -991,45 +841,64 @@ export default function App() {
                     }
                   }}
                 />
-                <button style={styles.primaryButton} onClick={() => enviar_chat(entradaChat)} disabled={loading}>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => enviar_chat(entradaChat)}
+                  disabled={loading}
+                >
                   Enviar
                 </button>
               </div>
-            </>
-          )}
+            </aside>
+          </div>
         </div>
       </main>
 
       {mostrarMudancas && (
-        <div style={styles.modal} onClick={() => setMostrarMudancas(false)}>
-          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ marginTop: 0, marginBottom: 20, color: "#10b981" }}>Mudanças Pendentes de Aprovação</h2>
+        <div className="modal-layer" onClick={() => setMostrarMudancas(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal-title">Mudanças pendentes de aprovação</h2>
             {mudancasPendentes.map((mudanca) => (
-              <div key={mudanca.id} style={styles.mudancaCard}>
-                <h3 style={{ marginTop: 0, fontSize: 16, color: "#e2e8f0" }}>{mudanca.arquivo}</h3>
-                <p style={{ fontSize: 13, color: "#94a3b8" }}>{mudanca.descricao}</p>
-                <div style={styles.diffPreview}>{mudanca.diff.slice(0, 1000)}</div>
-                <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+              <article key={mudanca.id} className="change-card">
+                <header className="change-header">
+                  <h3 className="change-title">{mudanca.arquivo}</h3>
+                  <span className="change-meta">{formatTimestamp(mudanca.criado_em)}</span>
+                </header>
+                <p className="change-description">{mudanca.descricao}</p>
+                <pre className="diff-preview">{(mudanca.diff || "").slice(0, 2000)}</pre>
+                <div className="modal-actions">
                   <button
-                    style={styles.primaryButton}
+                    type="button"
+                    className="button button-primary"
                     onClick={() => aprovarMudanca(mudanca.id)}
                     disabled={loading}
                   >
-                    ✓ Aprovar e Aplicar
+                    ✓ Aprovar e aplicar
                   </button>
                   <button
-                    style={{ ...styles.secondaryButton, background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.4)" }}
+                    type="button"
+                    className="button button-secondary"
                     onClick={() => rejeitarMudanca(mudanca.id)}
                     disabled={loading}
                   >
                     ✗ Rejeitar
                   </button>
                 </div>
-              </div>
+              </article>
             ))}
-            <button style={{ ...styles.secondaryButton, marginTop: 20 }} onClick={() => setMostrarMudancas(false)}>
+            <button type="button" className="button button-tertiary" onClick={() => setMostrarMudancas(false)}>
               Fechar
             </button>
+          </div>
+        </div>
+      )}
+
+      {loading && (
+        <div className="loading-overlay">
+          <div className="loading-indicator">
+            <span className="loading-spinner" />
+            <p className="loading-text">{loadingMessage || "Processando..."}</p>
           </div>
         </div>
       )}
