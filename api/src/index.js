@@ -21,6 +21,60 @@ const fila = new FilaMemoria();
 
 app.get("/saude", (_req, res) => res.json({ ok: true }));
 
+// Proxy estável para o Agente (evita depender de proxy do Vite)
+app.use('/proxy/agente', async (req, res) => {
+  try{
+    const base = await getAgenteUrl();
+    const target = base + req.originalUrl.replace(/^\/proxy\/agente/, "");
+    const init = { method: req.method, headers: { } };
+    for (const [k,v] of Object.entries(req.headers)){
+      if (["host","content-length"].includes(k)) continue;
+      init.headers[k] = v;
+    }
+    if(req.method !== 'GET' && req.method !== 'HEAD'){
+      const ct = (req.headers['content-type']||'')+'';
+      if (ct.includes('application/json') && req.body && typeof req.body === 'object'){
+        init.headers['content-type'] = 'application/json';
+        init.body = JSON.stringify(req.body);
+      } else {
+        const chunks=[]; for await (const ch of req) chunks.push(ch);
+        const body = Buffer.concat(chunks);
+        if(body.length) init.body = body;
+      }
+    }
+    const r = await fetch(target, init);
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.status(r.status);
+    for (const [k,v] of r.headers.entries()) res.setHeader(k, v);
+    res.setHeader('Access-Control-Allow-Origin','*');
+    res.send(buf);
+  }catch(e){
+    res.setHeader('Access-Control-Allow-Origin','*');
+    res.status(502).json({ erro: String(e?.message||e) });
+  }
+});
+
+// Compat: se o front chamar sem prefixo, encaminha para o Agente
+app.post('/repo/abrir', async (req, res) => {
+  try{
+    const base = await getAgenteUrl();
+    const r = await fetch(`${base}/repo/abrir`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body||{}),
+    });
+    const text = await r.text();
+    res.status(r.status);
+    res.set('Access-Control-Allow-Origin','*');
+    const ct = r.headers.get('content-type') || '';
+    if (ct.includes('application/json')){ try{ return res.json(JSON.parse(text)); }catch{ /* fallback below */ } }
+    return res.send(text);
+  }catch(e){
+    res.set('Access-Control-Allow-Origin','*');
+    res.status(502).json({ erro: String(e?.message||e) });
+  }
+});
+
 app.post("/tarefas", async (req, res) => {
   const { titulo, repositorioUrl, descricao, branchBase } = req.body || {};
   if (!titulo || !repositorioUrl)

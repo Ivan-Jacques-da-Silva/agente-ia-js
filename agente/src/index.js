@@ -57,8 +57,6 @@ function graceful(){
 process.on("SIGINT", graceful);
 process.on("SIGTERM", graceful);
 
-await start();
-
 // Estado do repositório atual
 const estado = {
   pasta: null,
@@ -92,11 +90,11 @@ async function listar_arvore(base){
 
 app.post("/repo/abrir", async (req,res)=>{
   try{
-    const { repositorioUrl, branchBase } = req.body||{};
+    const { repositorioUrl, branchBase, token } = req.body||{};
     if(!repositorioUrl) return res.status(400).json({erro:"repositorioUrl é obrigatório"});
     const pasta = path.join(os.tmpdir(), `repo_${Date.now()}`);
-    await clonar_repositorio(repositorioUrl, pasta);
-    await criar_branch(pasta, `agente/${Date.now()}`);
+    await clonar_repositorio(repositorioUrl, pasta, token);
+    await criar_branch(pasta, `agente/${Date.now()}`, branchBase);
     estado.pasta = pasta;
     estado.branch = branchBase || null;
     estado.url = repositorioUrl;
@@ -161,6 +159,13 @@ app.get("/ollama/saude", async (_req,res)=>{
     const r = await fetch(`${process.env.OLLAMA_URL || "http://localhost:11434"}/api/tags`);
     if(!r.ok) return res.status(502).json({ok:false, status:r.status});
     const j = await r.json();
-    res.json({ok:true, modelos:(j?.models||[]).map(m=>m?.name)});
+    const modelos = (j?.models||[]).map(m=>m?.name);
+    const selecionado = process.env.LLM_MODEL || "qwen3-coder:480b-cloud";
+    const disponivel = modelos.includes(selecionado);
+    res.json({ok:true, modelos, selecionado, disponivel});
   }catch(e){ res.status(500).json({ok:false, erro:String(e?.message||e)}); }
 });
+
+// iniciar servidor somente após rotas registradas
+await start();
+

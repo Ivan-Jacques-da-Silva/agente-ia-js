@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 
 // Use proxies do Vite por padrão para evitar CORS e varredura de portas
 const API_DEFAULT = import.meta.env.VITE_API_URL || "/api";
-const AGENTE_DEFAULT = import.meta.env.VITE_AGENT_URL || "/agente";
+// aponta para API que proxa o Agente
+const AGENTE_DEFAULT = import.meta.env.VITE_AGENT_URL || "/proxy/agente";
 
 export default function App(){
   const [apiUrl,setApiUrl]=useState(API_DEFAULT);
@@ -63,14 +64,15 @@ export default function App(){
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({repositorioUrl:repo,branchBase})
       });
-      const j=await r.json();
+      const ct=r.headers.get('content-type')||'';
+      const j = ct.includes('application/json') ? await r.json() : { erro: await r.text() };
       if(!r.ok) throw new Error(j?.erro||"Falha ao abrir repositório");
       setArvore(j.arvore||[]);
     }catch(e){ setErro(String(e?.message||e)); }
   }
 
   async function carregar_arvore(){
-    try{ const r=await fetch(`${agenteUrl}/repo/tree`); const j=await r.json(); setArvore(j.arvore||[]);}catch{ /* ignore */ }
+    try{ const r=await fetch(`${agenteUrl}/repo/tree`); const ct=r.headers.get('content-type')||''; const j= ct.includes('application/json')? await r.json():{}; setArvore(j.arvore||[]);}catch{ /* ignore */ }
   }
 
   async function abrir_arquivo(p){
@@ -169,4 +171,3 @@ export default function App(){
     </div>
   );
 }
-

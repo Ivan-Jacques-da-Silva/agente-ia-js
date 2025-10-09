@@ -12,14 +12,15 @@ Ambiente (.env)
 - `api/.env` (opcional):
   - `API_PORTA=5050`
   - `AGENTE_PORTA=6060`
-- `agente/.env` (necessário para customizar o modelo):
+- `agente/.env` (já configurado):
   - `AGENTE_PORTA=6060`
   - `OLLAMA_URL=http://localhost:11434`
-  - `LLM_MODEL=qwen2.5-coder:7b` (ex.: `qwen2.5-coder:7b` ou `llama3.1:8b`)
-- `front/.env` (opcional):
-  - `VITE_API_URL=http://localhost:5050`
+  - `LLM_MODEL=qwen3-coder:480b-cloud` (padrão recomendado para programação entre os seus modelos)
+- `front/.env` (já configurado):
+  - `VITE_API_URL=/api`
+  - `VITE_AGENT_URL=/agente`
 
 Observações
-- O agente consulta o Ollama via `POST /api/generate` e tenta extrair JSON com chaves `objetivos`, `passos`, `criteriosAceite`.
+- O agente consulta o Ollama via `POST /api/generate` (fallback para `POST /api/chat`) e tenta extrair JSON com `objetivos`, `passos`, `criteriosAceite`.
 - Caso o modelo não retorne JSON válido, um plano padrão é usado.
 - A API enfileira tarefas em memória e aciona o agente.
