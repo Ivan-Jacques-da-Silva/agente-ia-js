@@ -1,0 +1,48 @@
+Fala, Ivan! 👋
+
+Não, **agente** não é só “chat”. É um **sistema autônomo** que usa um LLM, mas com peças extras pra **agir** no mundo:
+
+**Peças principais**
+
+* **Objetivos**: o que precisa alcançar.
+* **Planejador**: quebra objetivo em passos.
+* **Ferramentas**: navegador, shell, git, banco, APIs, IDE… (com permissões).
+* **Ambiente de execução**: sandbox/contêiner pra rodar comandos e testes.
+* **Memória/Contexto**: curto (janela) + longo (store) + fatos do projeto.
+* **Avaliador/Verificador**: checa saída, testa, reexecuta se falhar.
+* **Guardrails**: limites de segurança, rate limits, políticas.
+* **Observabilidade**: logs, traces, diffs, snapshots.
+
+**Ciclo típico (loop percepção-ação)**
+
+1. ler contexto/estado → 2) planejar próximo passo → 3) chamar ferramenta →
+2. observar resultado → 5) validar/testar → 6) ajustar plano → (repete) → 7) entregar.
+
+**Por que “parece um robô”?**
+Porque ele **executa**: abre página, roda testes, lê logs, faz commit, reverte, compara diffs. Ele não só responde—**atua**, mede e corrige.
+
+**Mini-esqueleto (pseudocódigo JS com nomes em PT):**
+
+```js
+async function agente({objetivo, ferramentas, memoria}) {
+  let plano = await planejar(objetivo, memoria);
+  while (!alvoConcluido(plano)) {
+    const passo = proximoPasso(plano);
+    const acao = await decidirAcao(passo, contextoAtual(memoria));
+    const resultado = await executarAcao(acao, ferramentas); // ex.: shell, http, git
+    const validacao = await validarResultado(resultado);     // testes, lint, status HTTP
+    await registrar(memoria, {passo, acao, resultado, validacao});
+    plano = await ajustarPlano(plano, validacao, resultado);
+    aplicarGuardrails(plano, resultado); // limites/sandbox
+  }
+  return sintetizarEntrega(memoria);
+}
+```
+
+**Módulos mínimos pra ter um agente “de verdade”**
+
+* `planejar()`, `decidirAcao()`, `executarAcao()`, `validarResultado()`, `ajustarPlano()`
+* adaptadores de **ferramentas** (browser, FS, git, testes, APIs)
+* **sandbox** (Docker/VM) + **logs** + **memória** persistente
+
+Se quiser, já te mando um boilerplate Node com `executarShell`, `abrirPagina`, `rodarTestes` e o loop acima.
