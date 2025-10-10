@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "instalar": "npm i --workspaces",
-    "dev": "concurrently -k -n api,agente,front -c yellow,cyan,magenta \"npm:dev --workspace api\" \"npm:dev --workspace agente\" \"npm:dev --workspace front\""
+    "dev": "node node_modules/concurrently/dist/bin/concurrently.js -k -n api,agente,front -c yellow,cyan,magenta \"npm run dev --workspace api\" \"npm run dev --workspace agente\" \"npm run dev --workspace front\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

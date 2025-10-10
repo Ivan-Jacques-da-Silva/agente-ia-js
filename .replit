@@ -23,7 +23,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npx concurrently -k -n api,agente,front -c yellow,cyan,magenta \"npm run dev --workspace api\" \"npm run dev --workspace agente\" \"npm run dev --workspace front\""
+args = "npm run dev"
 waitForPort = 5000
 
 [workflows.workflow.metadata]
@@ -40,6 +40,10 @@ externalPort = 3000
 [[ports]]
 localPort = 6060
 externalPort = 3001
+
+[[ports]]
+localPort = 34799
+externalPort = 3003
 
 [[ports]]
 localPort = 35123
