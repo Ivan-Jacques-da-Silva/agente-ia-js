@@ -471,7 +471,7 @@ textarea {
 
 .tab-item {
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   padding: 8px 16px;
   font-size: 13px;
   background: var(--bg-tertiary);
@@ -484,6 +484,7 @@ textarea {
 .tab-item.is-active {
   background: var(--primary-color);
   color: #ffffff;
+  box-shadow: var(--shadow-sm);
 }
 
 .tab-current {
@@ -1219,7 +1220,7 @@ textarea {
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   cursor: pointer;
@@ -1228,14 +1229,16 @@ textarea {
 }
 
 .chat-session-item:hover {
-  background: var(--bg-primary);
+  background: var(--bg-hover);
   border-color: var(--primary-color);
+  transform: translateX(2px);
 }
 
 .chat-session-item.is-active {
-  background: rgba(59, 130, 246, 0.15);
+  background: rgba(139, 92, 246, 0.15);
   border-color: var(--primary-color);
   color: var(--primary-light);
+  box-shadow: var(--shadow-sm);
 }
 
 .chat-session-name {
@@ -1262,13 +1265,13 @@ textarea {
   color: var(--text-secondary);
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: 3px;
+  border-radius: 6px;
   font-size: 12px;
   transition: all 0.2s ease;
 }
 
 .chat-session-btn:hover {
-  background: rgba(59, 130, 246, 0.2);
+  background: rgba(139, 92, 246, 0.2);
   color: var(--primary-light);
 }
 
@@ -1286,16 +1289,17 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  border-radius: 8px;
+  border-radius: 16px;
   border: 1px solid var(--border-color);
   padding: 12px 14px;
   background: var(--bg-tertiary);
   color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .chat-message--user {
   margin-left: auto;
-  background: rgba(59, 130, 246, 0.15);
+  background: rgba(139, 92, 246, 0.15);
   border-color: var(--primary-color);
 }
 
