@@ -1585,27 +1585,18 @@ export default function App() {
                 <button
                   type="button"
                   style={{
-                    background: 'transparent',
+                    background: 'none',
                     border: 'none',
                     cursor: loading ? 'not-allowed' : 'pointer',
-                    fontSize: '20px',
+                    fontSize: '16px',
                     padding: '8px',
-                    borderRadius: '50%',
-                    width: '36px',
-                    height: '36px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: loading ? 0.5 : 1,
-                    transition: 'background 0.2s'
+                    opacity: loading ? 0.4 : 0.7
                   }}
                   onClick={() => enviar_chat(entradaChat)}
                   disabled={loading}
-                  onMouseEnter={(e) => !loading && (e.currentTarget.style.background = '#2e3338')}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  title="Enviar mensagem"
+                  title="Enviar"
                 >
-                  ⚫⚫⚫
+                  ⬆️
                 </button>
               </div>
             </aside>

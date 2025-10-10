@@ -93,25 +93,21 @@ export function AttachmentMenu({ agenteUrl, onAnaliseCompleta }) {
   };
 
   return (
-    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
       {/* Botão de anexar */}
       <button
         type="button"
         onClick={() => setMenuAberto(!menuAberto)}
         disabled={analisando}
         style={{
-          background: 'transparent',
+          background: 'none',
           border: 'none',
           cursor: analisando ? 'not-allowed' : 'pointer',
-          fontSize: '20px',
+          fontSize: '18px',
           padding: '8px',
-          borderRadius: '4px',
-          transition: 'background 0.2s',
-          opacity: analisando ? 0.5 : 1
+          opacity: analisando ? 0.4 : 0.7
         }}
-        onMouseEnter={(e) => !analisando && (e.currentTarget.style.background = '#2e3338')}
-        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-        title="Anexar arquivo"
+        title="Anexar"
       >
         📎
       </button>
@@ -132,61 +128,53 @@ export function AttachmentMenu({ agenteUrl, onAnaliseCompleta }) {
               position: 'absolute',
               bottom: '100%',
               left: 0,
-              marginBottom: '8px',
-              background: '#2e3338',
-              borderRadius: '8px',
+              marginBottom: '4px',
+              background: '#1a1d29',
+              border: '1px solid #2e3338',
+              borderRadius: '4px',
               padding: '4px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
               zIndex: 1000,
-              minWidth: '180px'
+              minWidth: '140px'
             }}
           >
             <button
               onClick={() => handleAnexar('imagem')}
               style={{
                 width: '100%',
-                padding: '10px 14px',
-                background: 'transparent',
+                padding: '8px 10px',
+                background: 'none',
                 border: 'none',
                 color: '#dcddde',
                 cursor: 'pointer',
-                borderRadius: '4px',
                 textAlign: 'left',
-                transition: 'background 0.2s',
-                fontSize: '14px',
+                fontSize: '13px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px'
+                gap: '8px'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.background = '#404449'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
             >
-              <span style={{ fontSize: '18px' }}>🖼️</span>
-              <span>Anexar Imagem</span>
+              <span>🖼️</span>
+              <span>Imagem</span>
             </button>
             
             <button
               onClick={() => handleAnexar('pdf')}
               style={{
                 width: '100%',
-                padding: '10px 14px',
-                background: 'transparent',
+                padding: '8px 10px',
+                background: 'none',
                 border: 'none',
                 color: '#dcddde',
                 cursor: 'pointer',
-                borderRadius: '4px',
                 textAlign: 'left',
-                transition: 'background 0.2s',
-                fontSize: '14px',
+                fontSize: '13px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px'
+                gap: '8px'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.background = '#404449'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
             >
-              <span style={{ fontSize: '18px' }}>📄</span>
-              <span>Anexar PDF</span>
+              <span>📄</span>
+              <span>PDF</span>
             </button>
           </div>
         </>
@@ -214,64 +202,29 @@ export function AttachmentMenu({ agenteUrl, onAnaliseCompleta }) {
         style={{ display: 'none' }}
       />
 
-      {/* Indicador de progresso compacto */}
+      {/* Indicador de progresso */}
       {analisando && progresso && (
         <div style={{
           position: 'absolute',
           bottom: '100%',
           left: '40px',
-          marginBottom: '8px',
+          marginBottom: '4px',
           background: '#1a1d29',
-          borderRadius: '8px',
-          padding: '12px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+          border: '1px solid #2e3338',
+          borderRadius: '4px',
+          padding: '8px',
           zIndex: 1000,
-          minWidth: '300px',
-          maxWidth: '400px',
-          borderLeft: `4px solid ${progresso.tipo === 'streaming' ? '#5865f2' : progresso.tipo === 'sucesso' ? '#3ba55c' : '#ed4245'}`
+          minWidth: '250px',
+          maxWidth: '350px'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', color: '#8b9dc3' }}>
-              {progresso.tipo === 'streaming' ? '💭 Analisando...' : progresso.tipo === 'sucesso' ? '✅ Completo' : '❌ Erro'}
-            </span>
-            <button
-              onClick={interromperAnalise}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#ed4245',
-                cursor: 'pointer',
-                fontSize: '12px',
-                padding: '4px 8px',
-                borderRadius: '4px'
-              }}
-            >
-              ⏸️ Parar
+          <div style={{ fontSize: '11px', color: '#8b9dc3', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+            <span>{progresso.tipo === 'streaming' ? 'Analisando...' : progresso.tipo === 'sucesso' ? 'Completo' : 'Erro'}</span>
+            <button onClick={interromperAnalise} style={{ background: 'none', border: 'none', color: '#ed4245', cursor: 'pointer', fontSize: '11px', padding: 0 }}>
+              Parar
             </button>
           </div>
-          
-          <div style={{
-            maxHeight: '100px',
-            overflowY: 'auto',
-            fontSize: '13px',
-            color: '#dcddde',
-            lineHeight: '1.5',
-            fontFamily: 'monospace',
-            background: '#0a0c10',
-            padding: '8px',
-            borderRadius: '4px'
-          }}>
-            {progresso.texto}
-            {progresso.tipo === 'streaming' && (
-              <span style={{ 
-                display: 'inline-block',
-                width: '8px',
-                height: '12px',
-                background: '#5865f2',
-                marginLeft: '2px',
-                animation: 'blink 1s infinite'
-              }}></span>
-            )}
+          <div style={{ fontSize: '12px', color: '#dcddde', maxHeight: '80px', overflowY: 'auto' }}>
+            {progresso.texto?.slice(0, 200)}...
           </div>
         </div>
       )}
