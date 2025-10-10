@@ -199,6 +199,22 @@ rm ~/.agente-ia/agente.db
 
 ## Funcionalidades Recentes
 
+### ✅ Repaginada Completa de Design (Implementado - 10/10/2025)
+- **Sistema de Tema Dark/Light**: Toggle no header para alternar entre temas
+  - Salvo automaticamente no localStorage
+  - Paleta de cores profissional em ambos os temas
+- **Nova Paleta de Cores**: Roxo/Violeta profissional
+  - Substituiu o esquema azul sobre azul anterior
+  - Cores harmoniosas e profissionais
+  - Variáveis CSS para fácil customização
+- **Design Arredondado**: Border-radius de 10px-16px
+  - Todos botões, cards, inputs e elementos arredondados
+  - Visual moderno e suave
+- **Visual Clean**: Sombras suaves, menos brilho
+  - Efeitos de hover melhorados
+  - Transições suaves
+  - Profissionalismo e elegância
+
 ### ✅ Nova UI de Conversas na Sidebar (Implementado - 10/10/2025)
 - Lista de conversas/chats movida para a sidebar esquerda (abaixo de "Abrir Projeto")
 - Botão de minimizar/expandir a sidebar esquerda (ícone de seta)
