@@ -253,6 +253,10 @@ export default function App() {
   const [explorerColapsado, setExplorerColapsado] = useState(false);
   const [chatColapsado, setChatColapsado] = useState(false);
   const [sidebarColapsada, setSidebarColapsada] = useState(false);
+  const [tema, setTema] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved || 'dark';
+  });
   const [diretoriosAbertos, setDiretoriosAbertos] = useState({});
   const [projetoAtual, setProjetoAtual] = useState(null);
   const [mudancasPendentes, setMudancasPendentes] = useState([]);
@@ -301,6 +305,16 @@ export default function App() {
       setLoadingMessage("");
     }
   }, []);
+
+  // Salvar tema no localStorage e aplicar classe
+  useEffect(() => {
+    localStorage.setItem('theme', tema);
+    document.documentElement.setAttribute('data-theme', tema);
+  }, [tema]);
+
+  const toggleTema = () => {
+    setTema(prev => prev === 'dark' ? 'light' : 'dark');
+  };
 
   const carregarMudancasPendentes = useCallback(async () => {
     if (!requireAgentReady()) return;
@@ -1361,6 +1375,15 @@ export default function App() {
                 disabled={loading}
               >
                 {explorerColapsado ? "Mostrar árvore" : "Ocultar árvore"}
+              </button>
+
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={toggleTema}
+                title={tema === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
+              >
+                <i className={`fas fa-${tema === 'dark' ? 'sun' : 'moon'}`}></i>
               </button>
 
               <button

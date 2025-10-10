@@ -1,19 +1,79 @@
 
-:root {
+/* Tema Dark (padrão) */
+:root,
+:root[data-theme="dark"] {
   color-scheme: dark;
-  --primary-color: #3b82f6;
-  --primary-dark: #2563eb;
-  --primary-light: #60a5fa;
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --border-color: #475569;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-tertiary: #64748b;
-  --success-color: #10b981;
+  
+  /* Cores primárias - Roxo/Violeta profissional */
+  --primary-color: #8b5cf6;
+  --primary-dark: #7c3aed;
+  --primary-light: #a78bfa;
+  --primary-hover: #9333ea;
+  
+  /* Backgrounds - Tons de cinza escuro */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #2a2a2a;
+  --bg-hover: #333333;
+  --bg-active: #3d3d3d;
+  
+  /* Bordas */
+  --border-color: #404040;
+  --border-light: #4a4a4a;
+  
+  /* Textos */
+  --text-primary: #f5f5f5;
+  --text-secondary: #a3a3a3;
+  --text-tertiary: #737373;
+  
+  /* Status */
+  --success-color: #22c55e;
   --error-color: #ef4444;
   --warning-color: #f59e0b;
+  --info-color: #3b82f6;
+  
+  /* Sombras */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+}
+
+/* Tema Light */
+:root[data-theme="light"] {
+  color-scheme: light;
+  
+  /* Cores primárias - Roxo/Violeta profissional */
+  --primary-color: #8b5cf6;
+  --primary-dark: #7c3aed;
+  --primary-light: #a78bfa;
+  --primary-hover: #9333ea;
+  
+  /* Backgrounds - Tons de branco/cinza claro */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #e5e5e5;
+  --bg-hover: #d4d4d4;
+  --bg-active: #c4c4c4;
+  
+  /* Bordas */
+  --border-color: #d4d4d4;
+  --border-light: #e5e5e5;
+  
+  /* Textos */
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-tertiary: #737373;
+  
+  /* Status */
+  --success-color: #16a34a;
+  --error-color: #dc2626;
+  --warning-color: #ea580c;
+  --info-color: #2563eb;
+  
+  /* Sombras */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.15);
 }
 
 * {
@@ -68,9 +128,10 @@ textarea {
   gap: 14px;
   padding: 16px;
   background: var(--bg-tertiary);
-  border-radius: 8px;
+  border-radius: 16px;
   border: 1px solid var(--border-color);
   position: relative;
+  box-shadow: var(--shadow-sm);
 }
 
 .sidebar-toggle {
@@ -85,7 +146,7 @@ textarea {
 .brand-logo {
   width: 48px;
   height: 48px;
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--primary-color);
   display: flex;
   align-items: center;
@@ -93,6 +154,7 @@ textarea {
   font-weight: 700;
   font-size: 24px;
   color: white;
+  box-shadow: var(--shadow-sm);
 }
 
 .brand-copy {
@@ -130,12 +192,13 @@ textarea {
 
 .status-card {
   padding: 14px 16px;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
   font-weight: 600;
   font-size: 13px;
   transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 .status-card--ready {
@@ -152,12 +215,13 @@ textarea {
 
 .project-card {
   padding: 14px 16px;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--primary-color);
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(139, 92, 246, 0.1);
   font-weight: 600;
   font-size: 13px;
   color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .field-grid {
@@ -176,7 +240,7 @@ textarea {
 
 .form-input {
   padding: 12px 14px;
-  border-radius: 6px;
+  border-radius: 10px;
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
   color: var(--text-primary);
@@ -189,6 +253,7 @@ textarea {
   outline: none;
   border-color: var(--primary-color);
   background: var(--bg-secondary);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
 }
 
 .form-input::placeholder {
@@ -197,7 +262,7 @@ textarea {
 
 .button {
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   padding: 12px 16px;
   font-weight: 600;
   font-size: 13px;
@@ -209,8 +274,10 @@ textarea {
 }
 
 .button:hover:not(:disabled) {
-  background: var(--bg-secondary);
+  background: var(--bg-hover);
   border-color: var(--primary-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .button:disabled {
@@ -222,10 +289,12 @@ textarea {
   background: var(--primary-color);
   color: #ffffff;
   border: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .button-primary:hover:not(:disabled) {
-  background: var(--primary-dark);
+  background: var(--primary-hover);
+  box-shadow: var(--shadow-md);
 }
 
 .button-secondary {
@@ -258,12 +327,13 @@ textarea {
 
 .window-chrome {
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: 16px;
   border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   flex: 1;
   overflow: hidden;
+  box-shadow: var(--shadow-lg);
 }
 
 .window-bar {
