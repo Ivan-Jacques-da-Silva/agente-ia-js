@@ -5,17 +5,18 @@ import path from "node:path";
 
 export async function analisarIntencao(mensagem, projetoId, arvore) {
   const contexto = await buscarContextoProjeto(projetoId, 20);
-  const arquivosRelevantes = arvore.filter(a => a.tipo === "file").slice(0, 100).map(a => a.path);
+  const todosArquivos = arvore.filter(a => a.tipo === "file").map(a => a.path);
+  const arquivosRelevantes = todosArquivos.slice(0, 300);
 
-  const prompt = `Você é um assistente de análise de código. Analise a intenção do usuário e identifique:
+  const prompt = `Voc2 8 um assistente de an2lise de c30digo. Analise a inten30o do usu2rio e identifique:
 1. Quais arquivos provavelmente precisam ser alterados
-2. Tipo de alteração (criação, edição, exclusão, refatoração)
-3. Complexidade estimada (baixa, média, alta)
+2. Tipo de altera30o (cria30o, edi30o, exclus2o, refatora30o)
+3. Complexidade estimada (baixa, m5dia, alta)
 4. Riscos potenciais
 
-Mensagem do usuário: "${mensagem}"
+Mensagem do usu2rio: "${mensagem}"
 
-Arquivos disponíveis no projeto (primeiros 100):
+Arquivos dispon2veis no projeto (amostra):
 ${arquivosRelevantes.join("\n")}
 
 Contexto de arquivos recentemente acessados:
@@ -24,14 +25,19 @@ ${contexto.map(c => `- ${c.caminho}`).join("\n")}
 Responda em JSON com:
 {
   "arquivos_alvo": ["caminho1", "caminho2"],
-  "tipo_mudanca": "edição|criação|exclusão|refatoração",
-  "complexidade": "baixa|média|alta",
+  "tipo_mudanca": "edi30o|cria30o|exclus2o|refatora30o",
+  "complexidade": "baixa|m5dia|alta",
   "riscos": ["risco1", "risco2"],
-  "plano_acao": "descrição breve do que será feito"
-}`;
+  "plano_acao": "descri30o breve do que ser3 feito"
+}
+
+IMPORTANTE:
+- Sempre selecione caminhos que EXISTEM na lista de arquivos do projeto, quando for uma edi30o/refatora30o.
+- Se precisar criar um arquivo novo, indique um caminho plaus2vel dentro da estrutura existente.
+`;
 
   try {
-    const resposta = await chat_simples("Analise a intenção", prompt);
+    const resposta = await chat_simples("Analise a inten30o", prompt);
     const inicio = resposta.indexOf("{");
     const fim = resposta.lastIndexOf("}");
 
@@ -40,23 +46,84 @@ Responda em JSON com:
       return json;
     }
   } catch (e) {
-    console.error("Erro ao analisar intenção:", e);
+    console.error("Erro ao analisar inten30o:", e);
   }
 
   return {
     arquivos_alvo: [],
-    tipo_mudanca: "edição",
-    complexidade: "média",
+    tipo_mudanca: "edi30o",
+    complexidade: "m5dia",
     riscos: [],
-    plano_acao: "Executar a solicitação do usuário"
+    plano_acao: "Executar a solicita30o do usu2rio"
   };
 }
 
+function normalizarTokens(texto) {
+  return String(texto || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._\-/ ]+/g, " ")
+    .split(/\s+/)
+    .filter(t => t && t.length >= 3);
+}
+
+function heuristicaArquivos(arvore, mensagem) {
+  const files = arvore.filter(a => a.tipo === "file").map(a => a.path);
+  const tokens = normalizarTokens(mensagem);
+  const pontuacao = new Map();
+
+  const boostExt = (p) => (p.endsWith('.jsx')||p.endsWith('.tsx')) ? 3 : (p.endsWith('.js')||p.endsWith('.ts')) ? 2 : 1;
+
+  for (const f of files) {
+    let score = 0;
+    const fLower = f.toLowerCase();
+    for (const t of tokens) {
+      if (fLower.includes(t)) score += 2;
+    }
+    if (fLower.includes('front/src/app.jsx')) score += 6;
+    if (fLower.includes('/app.') || fLower.includes('app.jsx') || fLower.includes('app.tsx')) score += 3;
+    if (fLower.includes('/index.') || fLower.includes('index.jsx') || fLower.includes('index.tsx')) score += 2;
+    if (fLower.includes('front/src')) score += 2;
+    score *= boostExt(fLower);
+    if (score > 0) pontuacao.set(f, score);
+  }
+
+  const candidatos = Array.from(pontuacao.entries())
+    .sort((a,b) => b[1]-a[1])
+    .slice(0, 3)
+    .map(([f]) => f);
+
+  if (candidatos.length === 0) {
+    const preferidos = ['front/src/app.jsx', 'src/App.jsx', 'src/app.jsx'];
+    for (const p of preferidos) if (files.includes(p)) candidatos.push(p);
+  }
+  if (candidatos.length === 0) {
+    candidatos.push(...files.filter(f => /\.(jsx?|tsx?)$/i.test(f)).slice(0,3));
+  }
+  if (candidatos.length === 0) candidatos.push(...files.slice(0,1));
+
+  return Array.from(new Set(candidatos)).slice(0,3);
+}
+
 export async function gerarMudancaInteligente(mensagem, projetoId, pastaProjeto, arvore) {
+  const passos = [];
+  passos.push(`Arquivos no projeto (amostra de ${Math.min(300, arvore.filter(a=>a.tipo==='file').length)} arquivos)`);
   const analise = await analisarIntencao(mensagem, projetoId, arvore);
+  passos.push("Intenção analisada pelo LLM");
 
   const arquivosContexto = [];
-  for (const arquivoAlvo of analise.arquivos_alvo.slice(0, 5)) {
+  let candidatos = Array.isArray(analise.arquivos_alvo) ? analise.arquivos_alvo.slice(0,5) : [];
+  const conjunto = new Set(arvore.filter(a => a.tipo === 'file').map(a => a.path));
+  candidatos = candidatos.filter(c => conjunto.has(c));
+  if (candidatos.length === 0) {
+    candidatos = heuristicaArquivos(arvore, mensagem);
+  }
+  if (candidatos.length) {
+    passos.push(`Arquivos candidatos: ${candidatos.slice(0,3).join(', ')}`);
+  } else {
+    passos.push('Nenhum arquivo candidato encontrado');
+  }
+
+  for (const arquivoAlvo of candidatos) {
     try {
       const caminhoCompleto = path.join(pastaProjeto, arquivoAlvo);
       const existe = await fs.promises.access(caminhoCompleto).then(() => true).catch(() => false);
@@ -71,52 +138,61 @@ export async function gerarMudancaInteligente(mensagem, projetoId, pastaProjeto,
     }
   }
 
-  const prompt = `Você é um desenvolvedor experiente. Gere as alterações necessárias para atender ao pedido.
+  const listaArquivos = arvore.filter(a => a.tipo === 'file').slice(0, 500).map(a => a.path).join('\n');
+
+  const prompt = `Voc2 8 um desenvolvedor experiente. Gere as altera55es necess5rias para atender ao pedido.
 
 Pedido: "${mensagem}"
 
-Plano de ação: ${analise.plano_acao}
+Plano de a50o: ${analise.plano_acao}
 
 Arquivos para alterar:
 ${arquivosContexto.map(a => `
 Arquivo: ${a.caminho}
-Conteúdo atual:
+Conte40do atual:
 \`\`\`
 ${a.conteudo}
 \`\`\`
 `).join("\n")}
 
-Responda em JSON com um array de mudanças:
+Arquivos existentes no projeto (amostra):
+${listaArquivos}
+
+Responda em JSON com um array de mudan55es:
 {
   "mudancas": [
     {
       "arquivo": "caminho/do/arquivo.js",
-      "conteudo_novo": "conteúdo completo do arquivo atualizado",
-      "descricao": "descrição breve da mudança"
+      "conteudo_novo": "conte40do completo do arquivo atualizado",
+      "descricao": "descri30o breve da mudan5a"
     }
   ],
   "mensagem_commit": "mensagem descritiva para o commit"
 }
 
-IMPORTANTE: Retorne o conteúdo COMPLETO de cada arquivo, não apenas as linhas alteradas.`;
+IMPORTANTE:
+- Retorne o conte40do COMPLETO de cada arquivo, n5o apenas as linhas alteradas.
+- Se nenhum arquivo alvo foi fornecido acima, escolha 1 a 3 caminhos EXISTENTES da lista e preencha o campo "arquivo" com esses caminhos exatos.
+- Se precisar criar arquivo novo, indique um caminho coerente com a estrutura mostrada.
+`;
 
   try {
-    const resposta = await chat_simples("Gere as mudanças", prompt);
+    const resposta = await chat_simples("Gere as mudan5as", prompt);
     const inicio = resposta.indexOf("{");
     const fim = resposta.lastIndexOf("}");
 
     if (inicio >= 0 && fim > inicio) {
       const json = JSON.parse(resposta.slice(inicio, fim + 1));
-      return { ...json, analise };
+      return { ...json, analise: { ...analise, passos } };
     }
   } catch (e) {
-    console.error("Erro ao gerar mudanças:", e);
+    console.error("Erro ao gerar mudan5as:", e);
   }
 
   return {
     mudancas: [],
-    mensagem_commit: "Alterações via agente",
-    analise
+    mensagem_commit: "Altera55es via agente",
+    analise: { ...analise, passos }
   };
 }
 

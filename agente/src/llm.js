@@ -1,12 +1,12 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const LLM_MODEL = process.env.LLM_MODEL || "qwen3-coder:480b-cloud";
+const LLM_MODEL = process.env.LLM_MODEL || "qwen2.5-coder:7b";
 
 const PLANO_PADRAO = {
   objetivos: ["Entender tarefa", "Editar repo", "Rodar testes", "Preparar PR"],
   passos: ["analisar", "planejar", "editar", "testar", "abrir_pr"],
-  criteriosAceite: ["build ok", "testes ok", "mudanças mínimas e seguras"],
+  criteriosAceite: ["build ok", "testes ok", "mudan\u00e7as m\u00ednimas e seguras"],
 };
 
 async function ensureModel(model){
@@ -32,8 +32,8 @@ async function pickModel(){
   if(await ensureModel(preferido)) return preferido;
   const fallbacks = [
     "qwen2.5-coder:7b",
-    "gpt-oss:20b-cloud",
-    "gpt-oss:120b-cloud",
+    "llama3.1:8b",
+    "mistral:7b"
   ];
   for(const m of fallbacks){
     if(await ensureModel(m)) return m;
@@ -42,14 +42,7 @@ async function pickModel(){
 }
 
 export async function pedir_plano(contexto, tarefa) {
-  const prompt = `VocÃª Ã© um engenheiro de software. Gere um plano conciso:
-- Objetivos
-- Passos (1..N)
-- CritÃ©rios de Aceite
-
-Contexto: ${contexto}
-Tarefa: ${JSON.stringify(tarefa, null, 2)}
-Responda em JSON com chaves: objetivos, passos, criteriosAceite.`;
+  const prompt = `Voc\u00ea \u00e9 um engenheiro de software. Gere um plano conciso:\n- Objetivos\n- Passos (1..N)\n- Crit\u00e9rios de Aceite\n\nContexto: ${contexto}\nTarefa: ${JSON.stringify(tarefa, null, 2)}\nResponda em JSON com chaves: objetivos, passos, criteriosAceite.`;
   try {
     const model = await pickModel();
     const r = await fetch(`${OLLAMA_URL}/api/generate`, {
@@ -74,7 +67,7 @@ Responda em JSON com chaves: objetivos, passos, criteriosAceite.`;
 export async function chat_simples(mensagem, contexto = ""){
   try{
     const model = await pickModel();
-    const prompt = `${contexto ? `Contexto:\n${contexto}\n\n` : ""}UsuÃ¡rio: ${mensagem}\nAssistente:`;
+    const prompt = `${contexto ? `Contexto:\n${contexto}\n\n` : ""}Usu\u00e1rio: ${mensagem}\nAssistente:`;
     let r = await fetch(`${OLLAMA_URL}/api/generate`,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
@@ -100,7 +93,7 @@ export async function chat_simples(mensagem, contexto = ""){
     const data = await r.json();
     return data?.response || data?.message?.content || "";
   }catch(e){
-    return `Ollama indisponÃ­vel ou modelo nÃ£o carregado. Detalhes: ${e?.message||e}`;
+    return `Ollama indispon\u00edvel ou modelo n\u00e3o carregado. Detalhes: ${e?.message||e}`;
   }
 }
 

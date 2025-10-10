@@ -489,13 +489,27 @@ export default function App() {
       });
 
       const j = await parseJsonResponse(r, "Falha ao enviar mensagem");
-      setChatMessages((prev) =>
-        prev.map((item) =>
-          item.id === placeholder.id
-            ? { ...item, text: j.resposta || "Sem resposta", pending: false }
-            : item
-        )
-      );
+      const passos = (j && (j.passos || (j.analise && j.analise.passos))) || [];
+      if (Array.isArray(passos) && passos.length) {
+        const passosText = [
+          "Passo a passo:",
+          ...passos.map((p, i) => `${i + 1}. ${p}`)
+        ].join("\n");
+        setChatMessages((prev) => prev.map((item) => item.id === placeholder.id
+          ? { ...item, text: passosText, pending: false }
+          : item
+        ));
+        const finalMsg = createMessage("agent", j.resposta || "Sem resposta");
+        setChatMessages((prev) => [...prev, finalMsg]);
+      } else {
+        setChatMessages((prev) =>
+          prev.map((item) =>
+            item.id === placeholder.id
+              ? { ...item, text: j.resposta || "Sem resposta", pending: false }
+              : item
+          )
+        );
+      }
 
       if (j.mudancas > 0) {
         await carregarMudancasPendentes();
@@ -1352,16 +1366,15 @@ export default function App() {
                         className="editor-gutter"
                         style={{
                           margin: 0,
-                          padding: "14px 8px",
+                          padding: "22px 8px",
                           width: 56,
                           boxSizing: "border-box",
                           textAlign: "right",
                           color: "#64748b",
                           background: "rgba(10,16,30,0.9)",
                           borderRight: "1px solid rgba(30,41,59,0.7)",
-                          fontFamily:
-                            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-                          fontSize: 13,
+                          fontFamily: "'Fira Code', 'JetBrains Mono', monospace",
+                          fontSize: 14,
                           lineHeight: 1.6,
                           whiteSpace: "pre",
                           tabSize: 2,
@@ -1386,11 +1399,10 @@ export default function App() {
                             top: 0, left: 0, right: 0,
                             margin: 0,
                             pointerEvents: "none",
-                            padding: "14px 18px",
-                            fontSize: 13,
+                            padding: "22px 28px",
+                            fontSize: 14,
                             lineHeight: 1.6,
-                            fontFamily:
-                              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                            fontFamily: "'Fira Code', 'JetBrains Mono', monospace",
                             color: "#e2e8f0",
                             whiteSpace: "pre",
                             height: "auto",
