@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github-dark-dimmed.css";
+import "@fortawesome/fontawesome-free/css/all.min.css";
 import "./app.css";
 import { AttachmentMenu } from "./AttachmentMenu";
 
@@ -230,6 +231,7 @@ export default function App() {
   const { base: agenteUrl, status: agenteStatus } = useEndpointResolver(AGENTE_CANDIDATES, "/saude");
 
   const [repo, setRepo] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");
   const [caminhoLocal, setCaminhoLocal] = useState("");
   const [branchBase, setBranchBase] = useState("main");
   const [erro, setErro] = useState("");
@@ -239,6 +241,12 @@ export default function App() {
   const [arvore, setArvore] = useState([]);
   const [abas, setAbas] = useState([]);
   const [abaAtiva, setAbaAtiva] = useState(null);
+  
+  const [chatSessions, setChatSessions] = useState(() => {
+    const saved = localStorage.getItem('chatSessions');
+    return saved ? JSON.parse(saved) : [{ id: 1, name: 'Chat Principal', messages: [] }];
+  });
+  const [activeChatId, setActiveChatId] = useState(1);
   const [chatMessages, setChatMessages] = useState([]);
   const [entradaChat, setEntradaChat] = useState("");
   const [expandedHistory, setExpandedHistory] = useState({});
@@ -496,20 +504,34 @@ export default function App() {
           "Passo a passo:",
           ...passos.map((p, i) => `${i + 1}. ${p}`)
         ].join("\n");
-        setChatMessages((prev) => prev.map((item) => item.id === placeholder.id
-          ? { ...item, text: passosText, pending: false }
-          : item
-        ));
-        const finalMsg = createMessage("agent", j.resposta || "Sem resposta");
-        setChatMessages((prev) => [...prev, finalMsg]);
+        setChatMessages((prev) => {
+          const novasMensagens = prev.map((item) => item.id === placeholder.id
+            ? { ...item, text: passosText, pending: false }
+            : item
+          );
+          const finalMsg = createMessage("agent", j.resposta || "Sem resposta");
+          const resultado = [...novasMensagens, finalMsg];
+          
+          setChatSessions(sessions => sessions.map(s => 
+            s.id === activeChatId ? { ...s, messages: resultado } : s
+          ));
+          
+          return resultado;
+        });
       } else {
-        setChatMessages((prev) =>
-          prev.map((item) =>
+        setChatMessages((prev) => {
+          const resultado = prev.map((item) =>
             item.id === placeholder.id
               ? { ...item, text: j.resposta || "Sem resposta", pending: false }
               : item
-          )
-        );
+          );
+          
+          setChatSessions(sessions => sessions.map(s => 
+            s.id === activeChatId ? { ...s, messages: resultado } : s
+          ));
+          
+          return resultado;
+        });
       }
 
       if (j.mudancas > 0) {
@@ -528,6 +550,49 @@ export default function App() {
     } finally {
       setLoading(false);
       setLoadingMessage("");
+    }
+  }
+
+  useEffect(() => {
+    localStorage.setItem('chatSessions', JSON.stringify(chatSessions));
+  }, [chatSessions]);
+
+  useEffect(() => {
+    const activeSession = chatSessions.find(s => s.id === activeChatId);
+    if (activeSession) {
+      setChatMessages(activeSession.messages || []);
+    }
+  }, [activeChatId]);
+
+  function criarNovoChat() {
+    const novoId = Math.max(...chatSessions.map(s => s.id), 0) + 1;
+    const novoChat = {
+      id: novoId,
+      name: `Chat ${novoId}`,
+      messages: []
+    };
+    setChatSessions(prev => [...prev, novoChat]);
+    setActiveChatId(novoId);
+  }
+
+  function renomearChat(chatId, novoNome) {
+    setChatSessions(prev => prev.map(session =>
+      session.id === chatId
+        ? { ...session, name: novoNome }
+        : session
+    ));
+  }
+
+  function deletarChat(chatId) {
+    if (chatSessions.length === 1) {
+      alert('Você precisa ter pelo menos um chat ativo.');
+      return;
+    }
+    if (confirm('Tem certeza que deseja deletar este chat?')) {
+      setChatSessions(prev => prev.filter(s => s.id !== chatId));
+      if (activeChatId === chatId) {
+        setActiveChatId(chatSessions[0].id);
+      }
     }
   }
 
@@ -995,8 +1060,8 @@ export default function App() {
           )}
           style={{ "--indent-level": nivel }}
         >
-          <span className="file-tree-expander">{isDir ? (aberto ? "▾" : "▸") : ""}</span>
-          <span className="file-tree-icon">{isDir ? (aberto ? "📂" : "📁") : "📄"}</span>
+          <span className="file-tree-expander">{isDir ? (aberto ? <i className="fas fa-chevron-down"></i> : <i className="fas fa-chevron-right"></i>) : ""}</span>
+          <span className="file-tree-icon">{isDir ? <i className={`fas fa-folder${aberto ? "-open" : ""}`}></i> : <i className="fas fa-file-code"></i>}</span>
           <span className="file-tree-label">{node.nome}</span>
 
           {!isDir && (
@@ -1007,7 +1072,7 @@ export default function App() {
                 onClick={toggleMenu}
                 aria-label="Mais opções"
               >
-                ⋮
+                <i className="fas fa-ellipsis-v"></i>
               </button>
 
               {menuEstaAberto && (
@@ -1020,7 +1085,7 @@ export default function App() {
                       renomearArquivo(node.fullPath);
                     }}
                   >
-                    <span className="file-context-item-icon">✏️</span>
+                    <span className="file-context-item-icon"><i className="fas fa-edit"></i></span>
                     <span>Renomear</span>
                   </button>
 
@@ -1032,7 +1097,7 @@ export default function App() {
                       downloadArquivo(node.fullPath);
                     }}
                   >
-                    <span className="file-context-item-icon">⬇️</span>
+                    <span className="file-context-item-icon"><i className="fas fa-download"></i></span>
                     <span>Download</span>
                   </button>
                 </div>
@@ -1089,7 +1154,7 @@ export default function App() {
     <div className="app-shell">
       <aside className="app-sidebar">
         <div className="brand-header">
-          <div className="brand-logo">🤖</div>
+          <div className="brand-logo"><i className="fas fa-robot"></i></div>
           <div className="brand-copy">
             <span className="brand-title">Agente IA</span>
             <span className="brand-subtitle">Sistema de Desenvolvimento</span>
@@ -1106,10 +1171,10 @@ export default function App() {
             )}
           >
             {agenteStatus === "ready"
-              ? "✓ Conectado"
+              ? <><i className="fas fa-check-circle"></i> Conectado</>
               : agenteStatus === "resolving"
-                ? "⏳ Conectando..."
-                : "✗ Desconectado"}
+                ? <><i className="fas fa-spinner fa-spin"></i> Conectando...</>
+                : <><i className="fas fa-times-circle"></i> Desconectado</>}
           </div>
         </section>
 
@@ -1117,6 +1182,16 @@ export default function App() {
           <section className="sidebar-section">
             <h2 className="section-title">Projeto Atual</h2>
             <div className="project-card">{projetoAtual.nome}</div>
+            <div className="field-grid" style={{ marginTop: '12px' }}>
+              <label className="field-label" htmlFor="projetoRepoUrl">URL do Repositório</label>
+              <input
+                id="projetoRepoUrl"
+                className="form-input"
+                placeholder="https://github.com/org/projeto"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+              />
+            </div>
           </section>
         )}
 
@@ -1234,7 +1309,7 @@ export default function App() {
                     className="button button-tertiary"
                     onClick={() => setExplorerColapsado((v) => !v)}
                   >
-                    {explorerColapsado ? "▸" : "▾"}
+                    <i className={`fas fa-chevron-${explorerColapsado ? "right" : "down"}`}></i>
                   </button>
                 </div>
                 {!explorerColapsado && (
@@ -1259,7 +1334,7 @@ export default function App() {
                           className={classNames("file-tab", abaAtiva === aba.id && "is-active")}
                           onClick={() => setAbaAtiva(aba.id)}
                         >
-                          <span className="file-tab-icon">📄</span>
+                          <span className="file-tab-icon"><i className="fas fa-file-code"></i></span>
                           <span className="file-tab-name">{aba.nome}</span>
                           {aba.dirty && <span className="file-tab-dot">●</span>}
                           <button
@@ -1268,7 +1343,7 @@ export default function App() {
                             onClick={(e) => fecharAba(aba.id, e)}
                             aria-label="Fechar aba"
                           >
-                            ✕
+                            <i className="fas fa-times"></i>
                           </button>
                         </div>
                       ))}
@@ -1294,7 +1369,7 @@ export default function App() {
                             disabled={loading}
                             title="Copiar código (Ctrl+Shift+C)"
                           >
-                            {copiando ? "✓ Copiado!" : "📋 Copiar"}
+                            {copiando ? <><i className="fas fa-check"></i> Copiado!</> : <><i className="fas fa-clipboard"></i> Copiar</>}
                           </button>
                           {dirty && (
                             <button
@@ -1334,7 +1409,7 @@ export default function App() {
                             disabled={resultadosBusca.length === 0}
                             title="Anterior"
                           >
-                            ↑
+                            <i className="fas fa-chevron-up"></i>
                           </button>
                           <button
                             type="button"
@@ -1343,7 +1418,7 @@ export default function App() {
                             disabled={resultadosBusca.length === 0}
                             title="Próximo"
                           >
-                            ↓
+                            <i className="fas fa-chevron-down"></i>
                           </button>
                           <button
                             type="button"
@@ -1355,7 +1430,7 @@ export default function App() {
                             }}
                             title="Fechar (ESC)"
                           >
-                            ✕
+                            <i className="fas fa-times"></i>
                           </button>
                         </div>
                       </div>
@@ -1490,7 +1565,7 @@ export default function App() {
                                   className="button button-tertiary"
                                   onClick={() => abrirDiffViewer(item)}
                                 >
-                                  👁️ Visualizar alterações
+                                  <i className="fas fa-eye"></i> Visualizar alterações
                                 </button>
                               </div>
                             )}
@@ -1514,7 +1589,7 @@ export default function App() {
 
             <aside className={classNames("chat-panel", chatColapsado && "is-collapsed")}>
               <div className="chat-header">
-                <span className="chat-title">Chat com o Agente IA</span>
+                <span className="chat-title"><i className="fas fa-comments"></i> Chat com o Agente IA</span>
                 <div className="chat-actions">
                   {mudancasPendentes.length > 0 && (
                     <button
@@ -1522,7 +1597,7 @@ export default function App() {
                       className="button button-tertiary"
                       onClick={() => setMostrarMudancas(true)}
                     >
-                      Revisar mudanças ({mudancasPendentes.length})
+                      <i className="fas fa-file-code"></i> Revisar ({mudancasPendentes.length})
                     </button>
                   )}
                   <button
@@ -1530,26 +1605,96 @@ export default function App() {
                     className="button button-tertiary"
                     onClick={() => setChatColapsado((v) => !v)}
                   >
-                    {chatColapsado ? "Mostrar" : "Esconder"}
+                    <i className={`fas fa-chevron-${chatColapsado ? "left" : "right"}`}></i>
                   </button>
+                </div>
+              </div>
+
+              <div className="chat-sessions">
+                <div className="chat-sessions-header">
+                  <span className="chat-sessions-title">Conversas</span>
+                  <button
+                    type="button"
+                    className="button button-tertiary"
+                    onClick={criarNovoChat}
+                    style={{ padding: '4px 8px', fontSize: '12px' }}
+                  >
+                    <i className="fas fa-plus"></i>
+                  </button>
+                </div>
+                <div className="chat-sessions-list">
+                  {chatSessions.map(session => (
+                    <div
+                      key={session.id}
+                      className={classNames("chat-session-item", session.id === activeChatId && "is-active")}
+                      onClick={() => setActiveChatId(session.id)}
+                    >
+                      <span className="chat-session-name">{session.name}</span>
+                      <div className="chat-session-actions">
+                        <button
+                          type="button"
+                          className="chat-session-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const novoNome = prompt('Novo nome:', session.name);
+                            if (novoNome) renomearChat(session.id, novoNome);
+                          }}
+                          title="Renomear"
+                        >
+                          <i className="fas fa-edit"></i>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-session-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deletarChat(session.id);
+                          }}
+                          title="Deletar"
+                        >
+                          <i className="fas fa-trash"></i>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               <div className="chat-message-list" ref={chatListRef}>
                 {chatMessages.length ? (
-                  chatMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={classNames(
-                        "chat-message",
-                        msg.role === "user" ? "chat-message--user" : "chat-message--agent",
-                        msg.pending && "is-pending"
-                      )}
-                    >
-                      <span className="chat-author">{msg.role === "user" ? "Você" : "Agente"}</span>
-                      <p className="chat-text">{msg.text}</p>
-                    </div>
-                  ))
+                  chatMessages.map((msg) => {
+                    const passos = msg.text?.startsWith("Passo a passo:") ? msg.text.split('\n').slice(1) : null;
+                    const textoSemPassos = passos ? null : msg.text;
+                    
+                    return (
+                      <div
+                        key={msg.id}
+                        className={classNames(
+                          "chat-message",
+                          msg.role === "user" ? "chat-message--user" : "chat-message--agent",
+                          msg.pending && "is-pending"
+                        )}
+                      >
+                        <span className="chat-author">
+                          <i className={`fas fa-${msg.role === "user" ? "user" : "robot"}`}></i> {msg.role === "user" ? "Você" : "Agente"}
+                        </span>
+                        {textoSemPassos && <p className="chat-text">{textoSemPassos}</p>}
+                        {passos && (
+                          <div className="chat-steps">
+                            <div className="chat-steps-title">
+                              <i className="fas fa-list-ol"></i> Etapas
+                            </div>
+                            {passos.map((passo, idx) => (
+                              <div key={idx} className="chat-step">
+                                <i className="fas fa-check-circle chat-step-icon"></i>
+                                <span className="chat-step-text">{passo.replace(/^\d+\.\s*/, '')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 ) : (
                   <div className="empty-state">Converse com o agente para orientar edições e automatizar fluxos.</div>
                 )}
@@ -1559,10 +1704,10 @@ export default function App() {
                 <AttachmentMenu 
                   agenteUrl={agenteUrl}
                   onAnaliseCompleta={(resultado, tipo, nomeArquivo) => {
-                    const icone = tipo === 'pdf' ? '📄' : '📸';
+                    const icone = tipo === 'pdf' ? <i className="fas fa-file-pdf"></i> : <i className="fas fa-image"></i>;
                     setChatMessages(prev => [
                       ...prev,
-                      { id: Date.now(), role: 'agent', text: `${icone} Análise de ${tipo} concluída (${nomeArquivo}):\n\n${resultado}` }
+                      { id: Date.now(), role: 'agent', text: `Análise de ${tipo} concluída (${nomeArquivo}):\n\n${resultado}` }
                     ]);
                   }}
                 />
@@ -1584,19 +1729,13 @@ export default function App() {
                 />
                 <button
                   type="button"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: loading ? 'not-allowed' : 'pointer',
-                    fontSize: '16px',
-                    padding: '8px',
-                    opacity: loading ? 0.4 : 0.7
-                  }}
+                  className="button button-tertiary"
                   onClick={() => enviar_chat(entradaChat)}
                   disabled={loading}
                   title="Enviar"
+                  style={{ padding: '8px 12px' }}
                 >
-                  ⬆️
+                  <i className="fas fa-paper-plane"></i>
                 </button>
               </div>
             </aside>
@@ -1637,7 +1776,7 @@ export default function App() {
                     onClick={() => aprovarMudanca(mudanca.id)}
                     disabled={loading}
                   >
-                    ✓ Aprovar e aplicar
+                    <i className="fas fa-check"></i> Aprovar e aplicar
                   </button>
 
                   <button
@@ -1646,7 +1785,7 @@ export default function App() {
                     onClick={() => rejeitarMudanca(mudanca.id)}
                     disabled={loading}
                   >
-                    ✗ Rejeitar
+                    <i className="fas fa-times"></i> Rejeitar
                   </button>
                 </div>
               </article>
@@ -1687,7 +1826,7 @@ export default function App() {
                   className="button button-tertiary"
                   onClick={() => setDiffViewerAberto(false)}
                 >
-                  ✕ Fechar
+                  <i className="fas fa-times"></i> Fechar
                 </button>
               </div>
             </div>
