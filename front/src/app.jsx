@@ -2,7 +2,7 @@
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github-dark-dimmed.css";
 import "./app.css";
-import { VisionAnalyzer } from "./VisionAnalyzer";
+import { AttachmentMenu } from "./AttachmentMenu";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
 
@@ -1513,18 +1513,6 @@ export default function App() {
             )}
 
             <aside className={classNames("chat-panel", chatColapsado && "is-collapsed")}>
-              {!chatColapsado && agenteUrl && (
-                <VisionAnalyzer 
-                  agenteUrl={agenteUrl}
-                  onAnaliseCompleta={(resultado) => {
-                    setChatMessages(prev => [
-                      ...prev,
-                      { id: Date.now(), role: 'agent', text: `📸 Análise de imagem concluída:\n\n${resultado}` }
-                    ]);
-                  }}
-                />
-              )}
-              
               <div className="chat-header">
                 <span className="chat-title">Chat com o Agente IA</span>
                 <div className="chat-actions">
@@ -1568,6 +1556,16 @@ export default function App() {
               </div>
 
               <div className="chat-composer">
+                <AttachmentMenu 
+                  agenteUrl={agenteUrl}
+                  onAnaliseCompleta={(resultado, tipo, nomeArquivo) => {
+                    const icone = tipo === 'pdf' ? '📄' : '📸';
+                    setChatMessages(prev => [
+                      ...prev,
+                      { id: Date.now(), role: 'agent', text: `${icone} Análise de ${tipo} concluída (${nomeArquivo}):\n\n${resultado}` }
+                    ]);
+                  }}
+                />
                 <textarea
                   className="chat-textarea"
                   placeholder="Descreva a alteração desejada..."
@@ -1586,11 +1584,28 @@ export default function App() {
                 />
                 <button
                   type="button"
-                  className="button button-primary"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    fontSize: '20px',
+                    padding: '8px',
+                    borderRadius: '50%',
+                    width: '36px',
+                    height: '36px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: loading ? 0.5 : 1,
+                    transition: 'background 0.2s'
+                  }}
                   onClick={() => enviar_chat(entradaChat)}
                   disabled={loading}
+                  onMouseEnter={(e) => !loading && (e.currentTarget.style.background = '#2e3338')}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  title="Enviar mensagem"
                 >
-                  Enviar
+                  ⚫⚫⚫
                 </button>
               </div>
             </aside>
