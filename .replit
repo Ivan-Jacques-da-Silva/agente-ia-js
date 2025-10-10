@@ -41,10 +41,6 @@ externalPort = 3000
 localPort = 6060
 externalPort = 3001
 
-[[ports]]
-localPort = 38293
-externalPort = 3002
-
 [deployment]
 deploymentTarget = "vm"
 run = ["bash", "-c", "npx concurrently -k -n api,agente,front \"npm run start --workspace api\" \"npm run start --workspace agente\" \"npm run preview --workspace front\""]
