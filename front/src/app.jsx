@@ -252,6 +252,7 @@ export default function App() {
   const [expandedHistory, setExpandedHistory] = useState({});
   const [explorerColapsado, setExplorerColapsado] = useState(false);
   const [chatColapsado, setChatColapsado] = useState(false);
+  const [sidebarColapsada, setSidebarColapsada] = useState(false);
   const [diretoriosAbertos, setDiretoriosAbertos] = useState({});
   const [projetoAtual, setProjetoAtual] = useState(null);
   const [mudancasPendentes, setMudancasPendentes] = useState([]);
@@ -539,6 +540,11 @@ export default function App() {
         setMostrarMudancas(true);
       }
       await carregarHistorico();
+
+      const activeSession = chatSessions.find(s => s.id === activeChatId);
+      if (activeSession && activeSession.messages.filter(m => m.role === 'user').length === 1) {
+        setTimeout(() => gerarTituloAutomatico(activeChatId), 500);
+      }
     } catch (e) {
       setChatMessages((prev) =>
         prev.map((item) =>
@@ -593,6 +599,35 @@ export default function App() {
       if (activeChatId === chatId) {
         setActiveChatId(chatSessions[0].id);
       }
+    }
+  }
+
+  async function gerarTituloAutomatico(chatId) {
+    const session = chatSessions.find(s => s.id === chatId);
+    if (!session || !session.messages || session.messages.length === 0) return;
+    if (!requireAgentReady()) return;
+
+    const primeiras3Mensagens = session.messages
+      .filter(m => m.role === 'user')
+      .slice(0, 3)
+      .map(m => m.text)
+      .join(' ');
+
+    if (!primeiras3Mensagens) return;
+
+    try {
+      const r = await fetch(buildUrl(agenteUrl, "/chat/gerar-titulo"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contexto: primeiras3Mensagens }),
+      });
+
+      const j = await parseJsonResponse(r, "Falha ao gerar título");
+      if (j.titulo) {
+        renomearChat(chatId, j.titulo);
+      }
+    } catch (e) {
+      console.error("Erro ao gerar título automático:", e);
     }
   }
 
@@ -1152,96 +1187,160 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="app-sidebar">
+      <aside className={classNames("app-sidebar", sidebarColapsada && "is-collapsed")}>
         <div className="brand-header">
           <div className="brand-logo"><i className="fas fa-robot"></i></div>
-          <div className="brand-copy">
-            <span className="brand-title">Agente IA</span>
-            <span className="brand-subtitle">Sistema de Desenvolvimento</span>
-          </div>
+          {!sidebarColapsada && (
+            <div className="brand-copy">
+              <span className="brand-title">Agente IA</span>
+              <span className="brand-subtitle">Sistema de Desenvolvimento</span>
+            </div>
+          )}
+          <button
+            type="button"
+            className="button button-tertiary sidebar-toggle"
+            onClick={() => setSidebarColapsada(v => !v)}
+            title={sidebarColapsada ? "Expandir sidebar" : "Minimizar sidebar"}
+          >
+            <i className={`fas fa-chevron-${sidebarColapsada ? "right" : "left"}`}></i>
+          </button>
         </div>
 
-        <section className="sidebar-section">
-          <h2 className="section-title">Status da conexão</h2>
-          <div
-            className={classNames(
-              "status-card",
-              agenteStatus === "ready" && "status-card--ready",
-              agenteStatus === "failed" && "status-card--failed"
+        {!sidebarColapsada && (
+          <>
+            <section className="sidebar-section">
+              <h2 className="section-title">Status da conexão</h2>
+              <div
+                className={classNames(
+                  "status-card",
+                  agenteStatus === "ready" && "status-card--ready",
+                  agenteStatus === "failed" && "status-card--failed"
+                )}
+              >
+                {agenteStatus === "ready"
+                  ? <><i className="fas fa-check-circle"></i> Conectado</>
+                  : agenteStatus === "resolving"
+                    ? <><i className="fas fa-spinner fa-spin"></i> Conectando...</>
+                    : <><i className="fas fa-times-circle"></i> Desconectado</>}
+              </div>
+            </section>
+
+            {projetoAtual && (
+              <section className="sidebar-section">
+                <h2 className="section-title">Projeto Atual</h2>
+                <div className="project-card">{projetoAtual.nome}</div>
+                <div className="field-grid" style={{ marginTop: '12px' }}>
+                  <label className="field-label" htmlFor="projetoRepoUrl">URL do Repositório</label>
+                  <input
+                    id="projetoRepoUrl"
+                    className="form-input"
+                    placeholder="https://github.com/org/projeto"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                  />
+                </div>
+              </section>
             )}
-          >
-            {agenteStatus === "ready"
-              ? <><i className="fas fa-check-circle"></i> Conectado</>
-              : agenteStatus === "resolving"
-                ? <><i className="fas fa-spinner fa-spin"></i> Conectando...</>
-                : <><i className="fas fa-times-circle"></i> Desconectado</>}
-          </div>
-        </section>
 
-        {projetoAtual && (
-          <section className="sidebar-section">
-            <h2 className="section-title">Projeto Atual</h2>
-            <div className="project-card">{projetoAtual.nome}</div>
-            <div className="field-grid" style={{ marginTop: '12px' }}>
-              <label className="field-label" htmlFor="projetoRepoUrl">URL do Repositório</label>
-              <input
-                id="projetoRepoUrl"
-                className="form-input"
-                placeholder="https://github.com/org/projeto"
-                value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
-              />
-            </div>
-          </section>
-        )}
+            <section className="sidebar-section">
+              <h2 className="section-title">Abrir Projeto</h2>
+              <div className="field-grid">
+                <label className="field-label" htmlFor="caminhoLocal">Caminho Local</label>
+                <input
+                  id="caminhoLocal"
+                  className="form-input"
+                  placeholder="/caminho/para/projeto"
+                  value={caminhoLocal}
+                  onChange={(e) => setCaminhoLocal(e.target.value)}
+                />
 
-        <section className="sidebar-section">
-          <h2 className="section-title">Abrir Projeto</h2>
-          <div className="field-grid">
-            <label className="field-label" htmlFor="caminhoLocal">Caminho Local</label>
-            <input
-              id="caminhoLocal"
-              className="form-input"
-              placeholder="/caminho/para/projeto"
-              value={caminhoLocal}
-              onChange={(e) => setCaminhoLocal(e.target.value)}
-            />
+                <label className="field-label" htmlFor="repoUrl">URL do repositório</label>
+                <input
+                  id="repoUrl"
+                  className="form-input"
+                  placeholder="https://github.com/org/projeto"
+                  value={repo}
+                  onChange={(e) => setRepo(e.target.value)}
+                />
 
-            <label className="field-label" htmlFor="repoUrl">URL do repositório</label>
-            <input
-              id="repoUrl"
-              className="form-input"
-              placeholder="https://github.com/org/projeto"
-              value={repo}
-              onChange={(e) => setRepo(e.target.value)}
-            />
+                <label className="field-label" htmlFor="branchBase">Branch Base</label>
+                <input
+                  id="branchBase"
+                  className="form-input"
+                  placeholder="main"
+                  value={branchBase}
+                  onChange={(e) => setBranchBase(e.target.value)}
+                />
 
-            <label className="field-label" htmlFor="branchBase">Branch Base</label>
-            <input
-              id="branchBase"
-              className="form-input"
-              placeholder="main"
-              value={branchBase}
-              onChange={(e) => setBranchBase(e.target.value)}
-            />
+                <button className="button button-primary" onClick={abrir_repo} disabled={loading}>
+                  {loading ? "Processando..." : "Abrir Projeto"}
+                </button>
+              </div>
+            </section>
 
-            <button className="button button-primary" onClick={abrir_repo} disabled={loading}>
-              {loading ? "Processando..." : "Abrir Projeto"}
-            </button>
-          </div>
-        </section>
+            <section className="sidebar-section">
+              <div className="chat-sessions-header">
+                <h2 className="section-title">Conversas</h2>
+                <button
+                  type="button"
+                  className="button button-tertiary"
+                  onClick={criarNovoChat}
+                  style={{ padding: '4px 8px', fontSize: '12px' }}
+                >
+                  <i className="fas fa-plus"></i>
+                </button>
+              </div>
+              <div className="chat-sessions-list">
+                {chatSessions.map(session => (
+                  <div
+                    key={session.id}
+                    className={classNames("chat-session-item", session.id === activeChatId && "is-active")}
+                    onClick={() => setActiveChatId(session.id)}
+                  >
+                    <span className="chat-session-name">{session.name}</span>
+                    <div className="chat-session-actions">
+                      <button
+                        type="button"
+                        className="chat-session-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const novoNome = prompt('Novo nome:', session.name);
+                          if (novoNome) renomearChat(session.id, novoNome);
+                        }}
+                        title="Renomear"
+                      >
+                        <i className="fas fa-edit"></i>
+                      </button>
+                      <button
+                        type="button"
+                        className="chat-session-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deletarChat(session.id);
+                        }}
+                        title="Deletar"
+                      >
+                        <i className="fas fa-trash"></i>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
 
-        {mudancasPendentes.length > 0 && (
-          <section className="sidebar-section">
-            <button
-              className="button button-attention"
-              type="button"
-              onClick={() => setMostrarMudancas(true)}
-              disabled={loading}
-            >
-              {mudancasPendentes.length} mudança(s) pendente(s)
-            </button>
-          </section>
+            {mudancasPendentes.length > 0 && (
+              <section className="sidebar-section">
+                <button
+                  className="button button-attention"
+                  type="button"
+                  onClick={() => setMostrarMudancas(true)}
+                  disabled={loading}
+                >
+                  {mudancasPendentes.length} mudança(s) pendente(s)
+                </button>
+              </section>
+            )}
+          </>
         )}
       </aside>
 
@@ -1589,7 +1688,9 @@ export default function App() {
 
             <aside className={classNames("chat-panel", chatColapsado && "is-collapsed")}>
               <div className="chat-header">
-                <span className="chat-title"><i className="fas fa-comments"></i> Chat com o Agente IA</span>
+                <span className="chat-title">
+                  <i className="fas fa-comments"></i> {chatSessions.find(s => s.id === activeChatId)?.name || 'Chat'}
+                </span>
                 <div className="chat-actions">
                   {mudancasPendentes.length > 0 && (
                     <button
@@ -1607,56 +1708,6 @@ export default function App() {
                   >
                     <i className={`fas fa-chevron-${chatColapsado ? "left" : "right"}`}></i>
                   </button>
-                </div>
-              </div>
-
-              <div className="chat-sessions">
-                <div className="chat-sessions-header">
-                  <span className="chat-sessions-title">Conversas</span>
-                  <button
-                    type="button"
-                    className="button button-tertiary"
-                    onClick={criarNovoChat}
-                    style={{ padding: '4px 8px', fontSize: '12px' }}
-                  >
-                    <i className="fas fa-plus"></i>
-                  </button>
-                </div>
-                <div className="chat-sessions-list">
-                  {chatSessions.map(session => (
-                    <div
-                      key={session.id}
-                      className={classNames("chat-session-item", session.id === activeChatId && "is-active")}
-                      onClick={() => setActiveChatId(session.id)}
-                    >
-                      <span className="chat-session-name">{session.name}</span>
-                      <div className="chat-session-actions">
-                        <button
-                          type="button"
-                          className="chat-session-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const novoNome = prompt('Novo nome:', session.name);
-                            if (novoNome) renomearChat(session.id, novoNome);
-                          }}
-                          title="Renomear"
-                        >
-                          <i className="fas fa-edit"></i>
-                        </button>
-                        <button
-                          type="button"
-                          className="chat-session-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deletarChat(session.id);
-                          }}
-                          title="Deletar"
-                        >
-                          <i className="fas fa-trash"></i>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
 

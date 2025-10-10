@@ -54,6 +54,12 @@ textarea {
   overflow-y: auto;
   position: relative;
   z-index: 10;
+  transition: all 0.3s ease;
+}
+
+.app-sidebar.is-collapsed {
+  width: 80px;
+  padding: 24px 12px;
 }
 
 .brand-header {
@@ -64,6 +70,16 @@ textarea {
   background: var(--bg-tertiary);
   border-radius: 8px;
   border: 1px solid var(--border-color);
+  position: relative;
+}
+
+.sidebar-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 8px !important;
+  font-size: 14px;
 }
 
 .brand-logo {
@@ -1104,6 +1120,12 @@ textarea {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+  gap: 8px;
+}
+
+.chat-sessions-header .section-title {
+  flex: 1;
+  margin: 0;
 }
 
 .chat-sessions-title {
@@ -1118,7 +1140,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 150px;
+  max-height: 200px;
   overflow-y: auto;
 }
 

@@ -307,6 +307,22 @@ app.post("/chat/inteligente", async (req, res) => {
   }
 });
 
+app.post("/chat/gerar-titulo", async (req, res) => {
+  try {
+    const { contexto } = req.body || {};
+    if (!contexto) return res.status(400).json({ erro: "contexto é obrigatório" });
+
+    const prompt = `Com base no seguinte contexto de conversa, gere um título curto e descritivo (máximo 4 palavras) para esta conversa. Responda apenas com o título, sem pontuação no final.\n\nContexto: ${contexto.slice(0, 300)}`;
+    
+    const titulo = await chat_simples(prompt, "Geração de título");
+    const tituloLimpo = titulo.trim().replace(/^["']|["']$/g, '').replace(/[.:!?]$/g, '');
+    
+    res.json({ titulo: tituloLimpo });
+  } catch (e) {
+    res.status(500).json({ erro: String(e?.message || e) });
+  }
+});
+
 app.get("/mudancas/pendentes", async (_req, res) => {
   try {
     if (!estado.projetoId) return res.status(400).json({ erro: "Nenhum projeto aberto" });
