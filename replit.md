@@ -199,6 +199,15 @@ rm ~/.agente-ia/agente.db
 
 ## Funcionalidades Recentes
 
+### ✅ Nova UI de Conversas na Sidebar (Implementado - 10/10/2025)
+- Lista de conversas/chats movida para a sidebar esquerda (abaixo de "Abrir Projeto")
+- Botão de minimizar/expandir a sidebar esquerda (ícone de seta)
+- Geração automática de títulos para conversas usando IA
+  - Analisa o contexto das primeiras mensagens
+  - Cria títulos curtos e descritivos (máximo 4 palavras)
+  - Atualiza automaticamente após a primeira mensagem do usuário
+- Interface mais organizada e intuitiva, similar ao ChatGPT
+
 ### ✅ Análise de Imagem com Streaming (Implementado!)
 - Upload e análise de imagens com LLaVA
 - Visualização progressiva tipo "thinking"
