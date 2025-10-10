@@ -97,5 +97,58 @@ export async function chat_simples(mensagem, contexto = ""){
   }
 }
 
+export async function analisar_imagem_stream(imagemBase64, prompt, onChunk, onComplete) {
+  try {
+    const visionModel = process.env.VISION_MODEL || "llava:7b";
+    
+    const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: visionModel,
+        prompt: prompt || "Descreva esta imagem em detalhes para ajudar um agente de IA a entender o contexto.",
+        images: [imagemBase64],
+        stream: true,
+        options: { temperature: 0.3 }
+      }),
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let textoCompleto = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n').filter(line => line.trim());
+
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          if (data.response) {
+            textoCompleto += data.response;
+            if (onChunk) onChunk(data.response, textoCompleto);
+          }
+          if (data.done && onComplete) {
+            onComplete(textoCompleto);
+          }
+        } catch (e) {
+          console.warn("Erro ao parsear chunk:", e);
+        }
+      }
+    }
+
+    return textoCompleto;
+  } catch (e) {
+    const erro = `Erro ao analisar imagem: ${e?.message || e}`;
+    if (onComplete) onComplete(erro);
+    return erro;
+  }
+}
+
 export { OLLAMA_URL, LLM_MODEL };
 

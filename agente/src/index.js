@@ -5,7 +5,7 @@ import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { chat_simples } from "./llm.js";
+import { chat_simples, analisar_imagem_stream } from "./llm.js";
 import { clonar_repositorio, criar_branch, commit_e_push } from "./ferramentas.js";
 import {
   criarProjeto,
@@ -387,6 +387,57 @@ app.get("/conversas", async (_req, res) => {
     res.json({ conversas });
   } catch (e) {
     res.status(500).json({ erro: String(e?.message || e) });
+  }
+});
+
+app.post("/vision/analisar", async (req, res) => {
+  try {
+    const { imagem, prompt } = req.body || {};
+    if (!imagem) return res.status(400).json({ erro: "Imagem é obrigatória" });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    let abortado = false;
+    
+    req.on('close', () => {
+      abortado = true;
+    });
+
+    const imagemBase64 = imagem.replace(/^data:image\/[^;]+;base64,/, '');
+
+    res.write(`data: ${JSON.stringify({ tipo: 'inicio', mensagem: '🔍 Analisando imagem...' })}\n\n`);
+
+    await analisar_imagem_stream(
+      imagemBase64,
+      prompt,
+      (chunk, textoCompleto) => {
+        if (!abortado) {
+          res.write(`data: ${JSON.stringify({ tipo: 'chunk', conteudo: chunk, textoCompleto })}\n\n`);
+        }
+      },
+      (textoFinal) => {
+        if (!abortado) {
+          res.write(`data: ${JSON.stringify({ tipo: 'completo', resultado: textoFinal })}\n\n`);
+          
+          if (estado.projetoId) {
+            salvarConversa(
+              estado.projetoId,
+              `[IMAGEM] ${prompt || 'Análise de imagem'}`,
+              textoFinal,
+              JSON.stringify({ tipo: 'visao', modelo: process.env.VISION_MODEL || 'llava:7b' })
+            );
+          }
+          
+          res.end();
+        }
+      }
+    );
+  } catch (e) {
+    res.write(`data: ${JSON.stringify({ tipo: 'erro', mensagem: String(e?.message || e) })}\n\n`);
+    res.end();
   }
 });
 
