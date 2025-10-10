@@ -375,7 +375,15 @@ app.post("/mudancas/aprovar", async (req, res) => {
     await fs.promises.writeFile(arquivoPath, mudanca.conteudo_novo, "utf-8");
 
     aprovarMudanca(mudancaId);
-    registrarHistorico(estado.projetoId, "mudanca_aprovada", `Arquivo ${mudanca.arquivo} alterado`);
+    
+    const dadosMudanca = JSON.stringify({
+      arquivo: mudanca.arquivo,
+      conteudo_original: conteudoOriginal,
+      conteudo_novo: mudanca.conteudo_novo,
+      diff: mudanca.diff
+    });
+    
+    registrarHistorico(estado.projetoId, "mudanca_aprovada", `Arquivo ${mudanca.arquivo} alterado`, dadosMudanca);
 
     res.json({ ok: true, arquivo: mudanca.arquivo });
   } catch (e) {

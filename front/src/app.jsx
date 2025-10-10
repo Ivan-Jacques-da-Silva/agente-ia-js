@@ -5,6 +5,7 @@ import "@fortawesome/fontawesome-free/css/all.min.css";
 import "./app.css";
 import { AttachmentMenu } from "./AttachmentMenu";
 import { MudancaCard } from "./MudancaCard";
+import { HistoricoItem } from "./HistoricoItem";
 import { enviarChatComStreaming, criarDiffVisualizer } from "./chat-utils";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
@@ -246,7 +247,14 @@ export default function App() {
   
   const [chatSessions, setChatSessions] = useState(() => {
     const saved = localStorage.getItem('chatSessions');
-    return saved ? JSON.parse(saved) : [{ id: 1, name: 'Chat Principal', messages: [] }];
+    return saved ? JSON.parse(saved) : [{ 
+      id: 1, 
+      name: 'Chat Principal', 
+      messages: [],
+      projeto: null,
+      arvore: [],
+      historico: []
+    }];
   });
   const [activeChatId, setActiveChatId] = useState(1);
   const [chatMessages, setChatMessages] = useState([]);
@@ -261,6 +269,8 @@ export default function App() {
   });
   const [diretoriosAbertos, setDiretoriosAbertos] = useState({});
   const [projetoAtual, setProjetoAtual] = useState(null);
+  const [arvoreAtual, setArvoreAtual] = useState([]);
+  const [historicoAtual, setHistoricoAtual] = useState([]);
   const [mudancasPendentes, setMudancasPendentes] = useState([]);
   const [mostrarMudancas, setMostrarMudancas] = useState(false);
   const [historico, setHistorico] = useState([]);
@@ -364,6 +374,8 @@ export default function App() {
       const j = await parseJsonResponse(r, "Falha ao abrir repositório");
       setArvore(j.arvore || []);
       setProjetoAtual(j.projeto);
+      setArvoreAtual(j.arvore || []);
+      setHistoricoAtual(j.historico || []);
       setChatMessages(mapConversasParaMensagens(j.conversas));
       setHistorico(j.historico || []);
       setActiveWorkspaceTab("editor");
@@ -371,6 +383,16 @@ export default function App() {
       setAbas([]);
       setAbaAtiva(null);
       await carregarMudancasPendentes();
+      
+      // Salvar projeto no chat atual
+      setChatSessions(sessions => sessions.map(s => 
+        s.id === activeChatId ? {
+          ...s,
+          projeto: j.projeto,
+          arvore: j.arvore || [],
+          historico: j.historico || []
+        } : s
+      ));
     });
   }
 
@@ -578,15 +600,23 @@ export default function App() {
     const activeSession = chatSessions.find(s => s.id === activeChatId);
     if (activeSession) {
       setChatMessages(activeSession.messages || []);
+      setProjetoAtual(activeSession.projeto || null);
+      setArvoreAtual(activeSession.arvore || []);
+      setHistoricoAtual(activeSession.historico || []);
+      setArvore(activeSession.arvore || []);
+      setHistorico(activeSession.historico || []);
     }
-  }, [activeChatId]);
+  }, [activeChatId, chatSessions]);
 
   function criarNovoChat() {
     const novoId = Math.max(...chatSessions.map(s => s.id), 0) + 1;
     const novoChat = {
       id: novoId,
       name: `Chat ${novoId}`,
-      messages: []
+      messages: [],
+      projeto: null,
+      arvore: [],
+      historico: []
     };
     setChatSessions(prev => [...prev, novoChat]);
     setActiveChatId(novoId);
@@ -1667,30 +1697,17 @@ export default function App() {
                 ) : (
                   <div className="history-panel">
                     {historico.length ? (
-                      historico.map((item) => {
-                        const arquivo = extractFileFromDescription(item.descricao);
-                        return (
-                          <article key={`${item.timestamp}-${item.tipo}`} className="history-entry">
-                            <header className="history-entry-header">
-                              <span className="history-entry-type">{item.tipo.replace(/_/g, " ")}</span>
-                              <span className="history-entry-time">{formatTimestamp(item.timestamp)}</span>
-                            </header>
-                            {arquivo && <div className="history-entry-file">{arquivo}</div>}
-                            {item.descricao && <p className="history-entry-description">{item.descricao}</p>}
-                            {item.diff && (
-                              <div className="history-entry-actions">
-                                <button
-                                  type="button"
-                                  className="button button-tertiary"
-                                  onClick={() => abrirDiffViewer(item)}
-                                >
-                                  <i className="fas fa-eye"></i> Visualizar alterações
-                                </button>
-                              </div>
-                            )}
-                          </article>
-                        );
-                      })
+                      historico.map((item) => (
+                        <HistoricoItem
+                          key={`${item.timestamp}-${item.tipo}`}
+                          item={item}
+                          onVisualizarDiff={(diffData) => {
+                            setDiffAtual(diffData);
+                            setIndiceMudancaAtual(0);
+                            setDiffViewerAberto(true);
+                          }}
+                        />
+                      ))
                     ) : (
                       <div className="empty-state">Nenhum histórico disponível ainda.</div>
                     )}
