@@ -4,6 +4,8 @@ import "highlight.js/styles/github-dark-dimmed.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import "./app.css";
 import { AttachmentMenu } from "./AttachmentMenu";
+import { MudancaCard } from "./MudancaCard";
+import { enviarChatComStreaming, criarDiffVisualizer } from "./chat-utils";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
 
@@ -498,79 +500,74 @@ export default function App() {
     }
 
     const userMessage = createMessage("user", msg);
-    const placeholder = createMessage("agent", "Digitando...", { pending: true });
+    const etapasMsg = createMessage("agent", "", { pending: true });
+    etapasMsg.isSteps = true;
+    etapasMsg.steps = [];
 
-    setChatMessages((prev) => [...prev, userMessage, placeholder]);
+    setChatMessages((prev) => [...prev, userMessage, etapasMsg]);
     setEntradaChat("");
     setLoading(true);
-    setLoadingMessage("Consultando agente...");
+    setLoadingMessage("Processando...");
 
-    try {
-      const r = await fetch(buildUrl(agenteUrl, "/chat/inteligente"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mensagem: msg }),
-      });
+    await enviarChatComStreaming(
+      msg,
+      agenteUrl,
+      (etapa) => {
+        setChatMessages((prev) => 
+          prev.map((m) => 
+            m.id === etapasMsg.id
+              ? { ...m, steps: [...(m.steps || []), etapa] }
+              : m
+          )
+        );
+      },
+      (resultado) => {
+        const resposta = resultado.resposta || "Sem resposta";
+        const mudancas = resultado.mudancas || [];
 
-      const j = await parseJsonResponse(r, "Falha ao enviar mensagem");
-      const passos = (j && (j.passos || (j.analise && j.analise.passos))) || [];
-      if (Array.isArray(passos) && passos.length) {
-        const passosText = [
-          "Passo a passo:",
-          ...passos.map((p, i) => `${i + 1}. ${p}`)
-        ].join("\n");
         setChatMessages((prev) => {
-          const novasMensagens = prev.map((item) => item.id === placeholder.id
-            ? { ...item, text: passosText, pending: false }
-            : item
-          );
-          const finalMsg = createMessage("agent", j.resposta || "Sem resposta");
-          const resultado = [...novasMensagens, finalMsg];
+          const filtered = prev.filter(m => m.id !== etapasMsg.id);
+          const respostaMsg = createMessage("agent", resposta);
+          
+          let novasMensagens = [...filtered, respostaMsg];
+          
+          if (mudancas.length > 0) {
+            mudancas.forEach((mudanca) => {
+              const mudancaMsg = createMessage("agent", "", { pending: false });
+              mudancaMsg.isMudanca = true;
+              mudancaMsg.mudanca = mudanca;
+              novasMensagens.push(mudancaMsg);
+            });
+          }
           
           setChatSessions(sessions => sessions.map(s => 
-            s.id === activeChatId ? { ...s, messages: resultado } : s
+            s.id === activeChatId ? { ...s, messages: novasMensagens } : s
           ));
           
-          return resultado;
+          return novasMensagens;
         });
-      } else {
-        setChatMessages((prev) => {
-          const resultado = prev.map((item) =>
-            item.id === placeholder.id
-              ? { ...item, text: j.resposta || "Sem resposta", pending: false }
+
+        carregarHistorico();
+        const activeSession = chatSessions.find(s => s.id === activeChatId);
+        if (activeSession && activeSession.messages.filter(m => m.role === 'user').length === 1) {
+          setTimeout(() => gerarTituloAutomatico(activeChatId), 500);
+        }
+
+        setLoading(false);
+        setLoadingMessage("");
+      },
+      (erro) => {
+        setChatMessages((prev) =>
+          prev.map((item) =>
+            item.id === etapasMsg.id
+              ? { ...item, text: `Erro: ${erro}`, pending: false, isSteps: false, steps: [] }
               : item
-          );
-          
-          setChatSessions(sessions => sessions.map(s => 
-            s.id === activeChatId ? { ...s, messages: resultado } : s
-          ));
-          
-          return resultado;
-        });
+          )
+        );
+        setLoading(false);
+        setLoadingMessage("");
       }
-
-      if (j.mudancas > 0) {
-        await carregarMudancasPendentes();
-        setMostrarMudancas(true);
-      }
-      await carregarHistorico();
-
-      const activeSession = chatSessions.find(s => s.id === activeChatId);
-      if (activeSession && activeSession.messages.filter(m => m.role === 'user').length === 1) {
-        setTimeout(() => gerarTituloAutomatico(activeChatId), 500);
-      }
-    } catch (e) {
-      setChatMessages((prev) =>
-        prev.map((item) =>
-          item.id === placeholder.id
-            ? { ...item, text: `Erro: ${e?.message || e}`, pending: false }
-            : item
-        )
-      );
-    } finally {
-      setLoading(false);
-      setLoadingMessage("");
-    }
+    );
   }
 
   useEffect(() => {
@@ -1737,6 +1734,55 @@ export default function App() {
               <div className="chat-message-list" ref={chatListRef}>
                 {chatMessages.length ? (
                   chatMessages.map((msg) => {
+                    if (msg.isMudanca) {
+                      return (
+                        <div key={msg.id} className="chat-message chat-message--agent">
+                          <MudancaCard
+                            mudanca={msg.mudanca}
+                            onVisualizar={(mudanca) => {
+                              const diffData = criarDiffVisualizer(
+                                mudanca.conteudo_original || '',
+                                mudanca.conteudo_novo || ''
+                              );
+                              setDiffAtual({
+                                arquivo: mudanca.arquivo,
+                                tipo: 'mudanca_pendente',
+                                timestamp: new Date().toISOString(),
+                                ...diffData
+                              });
+                              setIndiceMudancaAtual(0);
+                              setDiffViewerAberto(true);
+                            }}
+                            onAprovar={aprovarMudanca}
+                            onRejeitar={rejeitarMudanca}
+                            loading={loading}
+                          />
+                        </div>
+                      );
+                    }
+
+                    if (msg.isSteps && msg.steps) {
+                      return (
+                        <div key={msg.id} className="chat-message chat-message--agent">
+                          <span className="chat-author">
+                            <i className="fas fa-robot"></i> Agente
+                          </span>
+                          <div className="chat-steps">
+                            {msg.steps.map((step, idx) => (
+                              <div key={idx} className="chat-step-message">
+                                {step}
+                              </div>
+                            ))}
+                            {msg.pending && (
+                              <div className="chat-step-message">
+                                <i className="fas fa-spinner fa-spin"></i> Processando...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
                     const passos = msg.text?.startsWith("Passo a passo:") ? msg.text.split('\n').slice(1) : null;
                     const textoSemPassos = passos ? null : msg.text;
                     
