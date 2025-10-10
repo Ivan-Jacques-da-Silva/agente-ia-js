@@ -2,6 +2,7 @@
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github-dark-dimmed.css";
 import "./app.css";
+import { VisionAnalyzer } from "./VisionAnalyzer";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
 
@@ -1512,6 +1513,18 @@ export default function App() {
             )}
 
             <aside className={classNames("chat-panel", chatColapsado && "is-collapsed")}>
+              {!chatColapsado && agenteUrl && (
+                <VisionAnalyzer 
+                  agenteUrl={agenteUrl}
+                  onAnaliseCompleta={(resultado) => {
+                    setChatMessages(prev => [
+                      ...prev,
+                      { id: Date.now(), role: 'agent', text: `📸 Análise de imagem concluída:\n\n${resultado}` }
+                    ]);
+                  }}
+                />
+              )}
+              
               <div className="chat-header">
                 <span className="chat-title">Chat com o Agente IA</span>
                 <div className="chat-actions">
