@@ -28,6 +28,7 @@ import {
   analisarDiferencas,
   gerarDiff
 } from "./analisador.js";
+import { processarChatComStreaming } from "./chat-stream.js";
 
 const app = express();
 app.use(cors());
@@ -492,5 +493,23 @@ function graceful() {
 
 process.on("SIGINT", graceful);
 process.on("SIGTERM", graceful);
+
+app.post("/chat/stream", async (req, res) => {
+  try {
+    if (!estado.pasta || !estado.projetoId) {
+      return res.status(400).json({ erro: "Nenhum projeto aberto" });
+    }
+
+    const { mensagem } = req.body || {};
+    if (!mensagem) return res.status(400).json({ erro: "mensagem é obrigatória" });
+
+    const arvore = await listar_arvore(estado.pasta);
+    await processarChatComStreaming(mensagem, estado, arvore, res);
+  } catch (e) {
+    if (!res.headersSent) {
+      res.status(500).json({ erro: String(e?.message || e) });
+    }
+  }
+});
 
 await start();
