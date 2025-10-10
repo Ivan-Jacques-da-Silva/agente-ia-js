@@ -236,9 +236,8 @@ export default function App() {
   const [loadingMessage, setLoadingMessage] = useState("");
 
   const [arvore, setArvore] = useState([]);
-  const [arquivoAtual, setArquivoAtual] = useState("");
-  const [conteudo, setConteudo] = useState("");
-  const [original, setOriginal] = useState("");
+  const [abas, setAbas] = useState([]);
+  const [abaAtiva, setAbaAtiva] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [entradaChat, setEntradaChat] = useState("");
   const [expandedHistory, setExpandedHistory] = useState({});
@@ -253,15 +252,22 @@ export default function App() {
   const [chatWidth, setChatWidth] = useState(360);
   const [isResizingChat, setIsResizingChat] = useState(false);
   const [copiando, setCopiando] = useState(false);
+  const [menuAberto, setMenuAberto] = useState(null);
+  const [buscaAberta, setBuscaAberta] = useState(false);
+  const [textoBusca, setTextoBusca] = useState("");
+  const [resultadosBusca, setResultadosBusca] = useState([]);
+  const [indiceBuscaAtual, setIndiceBuscaAtual] = useState(0);
+  const [diffViewerAberto, setDiffViewerAberto] = useState(false);
+  const [diffAtual, setDiffAtual] = useState(null);
+  const [indiceMudancaAtual, setIndiceMudancaAtual] = useState(0);
 
   const chatResizeDataRef = useRef(null);
   const chatListRef = useRef(null);
+  const menuRef = useRef(null);
 
   const textareaRef = useRef(null);
   const gutterRef = useRef(null);
   const highlightRef = useRef(null);
-
-  const dirty = conteudo !== original;
 
   const requireAgentReady = useCallback(() => {
     if (agenteStatus === "failed") {
@@ -336,36 +342,106 @@ export default function App() {
       setHistorico(j.historico || []);
       setActiveWorkspaceTab("editor");
       setChatColapsado(false);
+      setAbas([]);
+      setAbaAtiva(null);
       await carregarMudancasPendentes();
     });
   }
 
   async function abrir_arquivo(p) {
     if (!requireAgentReady()) return;
+
+    // Verificar se o arquivo já está aberto em uma aba
+    const abaExistente = abas.find(aba => aba.path === p);
+    if (abaExistente) {
+      setAbaAtiva(abaExistente.id);
+      return;
+    }
+
     try {
       const r = await fetch(buildUrl(agenteUrl, `/repo/file?path=${encodeURIComponent(p)}`));
       const t = await r.text();
-      setArquivoAtual(p);
-      setConteudo(t);
-      setOriginal(t);
+
+      const novaAba = {
+        id: `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        path: p,
+        nome: p.split('/').pop(),
+        conteudo: t,
+        original: t,
+        dirty: false
+      };
+
+      setAbas(prev => [...prev, novaAba]);
+      setAbaAtiva(novaAba.id);
     } catch (e) {
       setErro(String(e?.message || e));
     }
   }
 
+  function fecharAba(abaId, e) {
+    if (e) {
+      e.stopPropagation();
+    }
+
+    const abaIndex = abas.findIndex(a => a.id === abaId);
+    if (abaIndex === -1) return;
+
+    const aba = abas[abaIndex];
+    if (aba.dirty) {
+      if (!confirm(`O arquivo ${aba.nome} tem alterações não salvas. Deseja fechar mesmo assim?`)) {
+        return;
+      }
+    }
+
+    const novasAbas = abas.filter(a => a.id !== abaId);
+    setAbas(novasAbas);
+
+    if (abaAtiva === abaId) {
+      if (novasAbas.length > 0) {
+        const proximaAba = novasAbas[Math.max(0, abaIndex - 1)];
+        setAbaAtiva(proximaAba.id);
+      } else {
+        setAbaAtiva(null);
+      }
+    }
+  }
+
+  function atualizarConteudoAba(conteudoNovo) {
+    if (!abaAtiva) return;
+
+    setAbas(prev => prev.map(aba => {
+      if (aba.id === abaAtiva) {
+        return {
+          ...aba,
+          conteudo: conteudoNovo,
+          dirty: conteudoNovo !== aba.original
+        };
+      }
+      return aba;
+    }));
+  }
+
   async function persistirArquivo() {
-    if (!arquivoAtual) return;
+    const abaAtual = abas.find(a => a.id === abaAtiva);
+    if (!abaAtual) return;
     if (!requireAgentReady()) return;
 
     await runWithLoading("Salvando arquivo...", async () => {
       const r = await fetch(buildUrl(agenteUrl, "/repo/save"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: arquivoAtual, conteudo }),
+        body: JSON.stringify({ path: abaAtual.path, conteudo: abaAtual.conteudo }),
       });
 
       await parseJsonResponse(r, "Falha ao salvar arquivo");
-      setOriginal(conteudo);
+
+      setAbas(prev => prev.map(aba => {
+        if (aba.id === abaAtiva) {
+          return { ...aba, original: aba.conteudo, dirty: false };
+        }
+        return aba;
+      }));
+
       setErro("");
       await carregarMudancasPendentes();
       await carregarHistorico();
@@ -477,13 +553,16 @@ export default function App() {
 
   // Copiar código inteiro do editor
   async function copiar_codigo() {
+    const abaAtual = abas.find(a => a.id === abaAtiva);
+    const conteudo = abaAtual?.conteudo || "";
+
     try {
-      await navigator.clipboard.writeText(conteudo || "");
+      await navigator.clipboard.writeText(conteudo);
       setCopiando(true);
       setTimeout(() => setCopiando(false), 1500);
     } catch {
       const ta = document.createElement("textarea");
-      ta.value = conteudo || "";
+      ta.value = conteudo;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand("copy");
@@ -493,10 +572,114 @@ export default function App() {
     }
   }
 
+  // Sistema de busca (Ctrl+F)
+  function realizarBusca(termo) {
+    setTextoBusca(termo);
+
+    const abaAtual = abas.find(a => a.id === abaAtiva);
+    if (!abaAtual || !termo) {
+      setResultadosBusca([]);
+      setIndiceBuscaAtual(0);
+      return;
+    }
+
+    const conteudo = abaAtual.conteudo;
+    const linhas = conteudo.split('\n');
+    const resultados = [];
+
+    linhas.forEach((linha, numLinha) => {
+      let index = 0;
+      while ((index = linha.toLowerCase().indexOf(termo.toLowerCase(), index)) !== -1) {
+        resultados.push({
+          linha: numLinha,
+          coluna: index,
+          texto: linha
+        });
+        index += termo.length;
+      }
+    });
+
+    setResultadosBusca(resultados);
+    setIndiceBuscaAtual(0);
+
+    if (resultados.length > 0) {
+      scrollParaBusca(resultados[0]);
+    }
+  }
+
+  function proximaBusca() {
+    if (resultadosBusca.length === 0) return;
+    const novoIndice = (indiceBuscaAtual + 1) % resultadosBusca.length;
+    setIndiceBuscaAtual(novoIndice);
+    scrollParaBusca(resultadosBusca[novoIndice]);
+  }
+
+  function buscaAnterior() {
+    if (resultadosBusca.length === 0) return;
+    const novoIndice = (indiceBuscaAtual - 1 + resultadosBusca.length) % resultadosBusca.length;
+    setIndiceBuscaAtual(novoIndice);
+    scrollParaBusca(resultadosBusca[novoIndice]);
+  }
+
+  function scrollParaBusca(resultado) {
+    if (!textareaRef.current) return;
+
+    const abaAtual = abas.find(a => a.id === abaAtiva);
+    if (!abaAtual) return;
+
+    const linhas = abaAtual.conteudo.split('\n');
+    let posicao = 0;
+
+    for (let i = 0; i < resultado.linha; i++) {
+      posicao += linhas[i].length + 1;
+    }
+    posicao += resultado.coluna;
+
+    textareaRef.current.focus();
+    textareaRef.current.setSelectionRange(posicao, posicao + textoBusca.length);
+    textareaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // Download de arquivo
+  async function downloadArquivo(filePath) {
+    if (!requireAgentReady()) return;
+    try {
+      const r = await fetch(buildUrl(agenteUrl, `/repo/file?path=${encodeURIComponent(filePath)}`));
+      const conteudoArquivo = await r.text();
+
+      const blob = new Blob([conteudoArquivo], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filePath.split('/').pop();
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      setMenuAberto(null);
+    } catch (e) {
+      setErro(`Erro ao baixar arquivo: ${e?.message || e}`);
+    }
+  }
+
+  // Renomear arquivo (placeholder para implementação futura)
+  async function renomearArquivo(filePath) {
+    // TODO: Implementar modal de renomeação
+    alert(`Função de renomear em desenvolvimento. Arquivo: ${filePath}`);
+    setMenuAberto(null);
+  }
+
   const arvoreEstruturada = useMemo(() => buildTree(arvore), [arvore]);
 
+  const abaAtual = abas.find(a => a.id === abaAtiva);
+  const conteudo = abaAtual?.conteudo || "";
+  const dirty = abaAtual?.dirty || false;
+  const arquivoAtual = abaAtual?.path || null;
+
+
   const linhasEditor = useMemo(() => {
-    const total = Math.max(1, String(conteudo || "").split("\n").length);
+    const total = Math.max(1, String(conteudo).split("\n").length);
     return Array.from({ length: total }, (_, i) => i + 1).join("\n");
   }, [conteudo]);
 
@@ -529,16 +712,16 @@ export default function App() {
 
   const highlightedHtml = useMemo(() => {
     try {
-      const lang = guessLanguage(arquivoAtual);
+      const lang = guessLanguage(abaAtual?.path);
       if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(conteudo || "", { language: lang, ignoreIllegals: true }).value;
+        return hljs.highlight(conteudo, { language: lang, ignoreIllegals: true }).value;
       }
-      return hljs.highlightAuto(conteudo || "").value;
+      return hljs.highlightAuto(conteudo).value;
     } catch {
-      const esc = String(conteudo || "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+      const esc = String(conteudo).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
       return esc;
     }
-  }, [conteudo, arquivoAtual]);
+  }, [conteudo, abaAtual?.path]);
 
   const onEditorScroll = (e) => {
     const top = e.currentTarget.scrollTop;
@@ -580,6 +763,116 @@ export default function App() {
     }
     return out;
   }
+
+  function parseDiffForSplitView(diffText) {
+    if (!diffText) return { original: [], modified: [], changes: [] };
+
+    const lines = diffText.split(/\r?\n/);
+    const original = [];
+    const modified = [];
+    const changes = [];
+
+    let originalLineNum = 1;
+    let modifiedLineNum = 1;
+    let changeIndex = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      if (line.startsWith('@@')) {
+        const match = line.match(/@@ -([0-9]+),?([0-9]*) \+([0-9]+),?([0-9]*) @@/);
+        if (match) {
+          originalLineNum = parseInt(match[1], 10);
+          modifiedLineNum = parseInt(match[3], 10);
+        }
+        continue;
+      }
+
+      if (line.startsWith('---') || line.startsWith('+++') || line.startsWith('diff ') || line.startsWith('index ')) {
+        continue;
+      }
+
+      if (line.startsWith('+')) {
+        modified.push({
+          lineNum: modifiedLineNum++,
+          content: line.substring(1),
+          type: 'added'
+        });
+        original.push({
+          lineNum: null,
+          content: '',
+          type: 'empty'
+        });
+        changes.push(modified.length - 1);
+        changeIndex++;
+      } else if (line.startsWith('-')) {
+        original.push({
+          lineNum: originalLineNum++,
+          content: line.substring(1),
+          type: 'removed'
+        });
+        modified.push({
+          lineNum: null,
+          content: '',
+          type: 'empty'
+        });
+        changes.push(original.length - 1);
+        changeIndex++;
+      } else {
+        original.push({
+          lineNum: originalLineNum++,
+          content: line.startsWith(' ') ? line.substring(1) : line,
+          type: 'context'
+        });
+        modified.push({
+          lineNum: modifiedLineNum++,
+          content: line.startsWith(' ') ? line.substring(1) : line,
+          type: 'context'
+        });
+      }
+    }
+
+    return { original, modified, changes };
+  }
+
+  function abrirDiffViewer(itemHistorico) {
+    const diffData = parseDiffForSplitView(itemHistorico.diff || '');
+    setDiffAtual({
+      arquivo: extractFileFromDescription(itemHistorico.descricao) || 'arquivo',
+      timestamp: itemHistorico.timestamp,
+      tipo: itemHistorico.tipo,
+      ...diffData
+    });
+    setIndiceMudancaAtual(0);
+    setDiffViewerAberto(true);
+  }
+
+  function navegarParaMudanca(direcao) {
+    if (!diffAtual || !diffAtual.changes.length) return;
+
+    const novoIndice = direcao === 'next'
+      ? Math.min(indiceMudancaAtual + 1, diffAtual.changes.length - 1)
+      : Math.max(indiceMudancaAtual - 1, 0);
+
+    setIndiceMudancaAtual(novoIndice);
+
+    const linhaAlvo = diffAtual.changes[novoIndice];
+    const elementos = document.querySelectorAll('.diff-code-line');
+    if (elementos[linhaAlvo]) {
+      elementos[linhaAlvo].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  const diffPaneLeftRef = useRef(null);
+  const diffPaneRightRef = useRef(null);
+
+  const sincronizarScroll = useCallback((source) => {
+    if (source === 'left' && diffPaneRightRef.current && diffPaneLeftRef.current) {
+      diffPaneRightRef.current.scrollTop = diffPaneLeftRef.current.scrollTop;
+    } else if (source === 'right' && diffPaneLeftRef.current && diffPaneRightRef.current) {
+      diffPaneLeftRef.current.scrollTop = diffPaneRightRef.current.scrollTop;
+    }
+  }, []);
 
   function renderDiff(text) {
     const rows = parseUnifiedDiff(text);
@@ -659,6 +952,7 @@ export default function App() {
   const renderNode = (node, nivel = 0) => {
     const isDir = node.tipo === "dir";
     const aberto = diretoriosAbertos[node.fullPath] ?? true;
+    const menuEstaAberto = menuAberto === node.fullPath;
 
     const toggle = () => {
       if (isDir) {
@@ -666,6 +960,11 @@ export default function App() {
       } else {
         abrir_arquivo(node.fullPath);
       }
+    };
+
+    const toggleMenu = (e) => {
+      e.stopPropagation();
+      setMenuAberto(menuEstaAberto ? null : node.fullPath);
     };
 
     return (
@@ -684,23 +983,92 @@ export default function App() {
           <span className="file-tree-expander">{isDir ? (aberto ? "▾" : "▸") : ""}</span>
           <span className="file-tree-icon">{isDir ? (aberto ? "📂" : "📁") : "📄"}</span>
           <span className="file-tree-label">{node.nome}</span>
+
+          {!isDir && (
+            <div className="file-tree-actions">
+              <button
+                type="button"
+                className="file-action-button"
+                onClick={toggleMenu}
+                aria-label="Mais opções"
+              >
+                ⋮
+              </button>
+
+              {menuEstaAberto && (
+                <div className="file-context-menu" ref={menuRef}>
+                  <button
+                    type="button"
+                    className="file-context-item"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      renomearArquivo(node.fullPath);
+                    }}
+                  >
+                    <span className="file-context-item-icon">✏️</span>
+                    <span>Renomear</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="file-context-item"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      downloadArquivo(node.fullPath);
+                    }}
+                  >
+                    <span className="file-context-item-icon">⬇️</span>
+                    <span>Download</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </button>
         {isDir && aberto && node.children && node.children.map((filho) => renderNode(filho, nivel + 1))}
       </div>
     );
   };
 
-  // Atalho: Ctrl/Cmd+Shift+C para copiar código do arquivo
+  // Atalhos de teclado
   useEffect(() => {
     const onKey = (e) => {
+      // Ctrl/Cmd+Shift+C para copiar código
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "c") {
         e.preventDefault();
         copiar_codigo();
       }
+
+      // Ctrl/Cmd+F para busca
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setBuscaAberta(prev => !prev);
+      }
+
+      // ESC para fechar busca
+      if (e.key === "Escape" && buscaAberta) {
+        setBuscaAberta(false);
+        setTextoBusca("");
+        setResultadosBusca([]);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [conteudo]);
+  }, [buscaAberta]);
+
+  // Fechar menu ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuAberto(null);
+      }
+    };
+
+    if (menuAberto) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [menuAberto]);
 
   return (
     <div className="app-shell">
@@ -809,26 +1177,6 @@ export default function App() {
               <button
                 type="button"
                 className="button button-secondary"
-                onClick={copiar_codigo}
-                disabled={loading || !arquivoAtual}
-                title="Copiar todo o código do arquivo (Ctrl/Cmd+Shift+C)"
-              >
-                {copiando ? "Copiado!" : "Copiar código"}
-              </button>
-
-              {dirty && (
-                <button
-                  type="button"
-                  className="button button-primary"
-                  onClick={persistirArquivo}
-                  disabled={loading}
-                >
-                  Salvar Arquivo
-                </button>
-              )}
-              <button
-                type="button"
-                className="button button-secondary"
                 onClick={commit_push}
                 disabled={loading}
               >
@@ -854,7 +1202,6 @@ export default function App() {
                 Histórico
               </button>
             </div>
-            <span className="tab-current">{arquivoAtual || "Sem arquivo aberto"}</span>
           </div>
 
           {erro && <div className="error-banner">{erro}</div>}
@@ -889,6 +1236,116 @@ export default function App() {
               <section className="editor-content">
                 {activeWorkspaceTab === "editor" ? (
                   <div className="editor-column">
+                    {/* Barra de abas de arquivos */}
+                    <div className="file-tabs-bar">
+                      {abas.map(aba => (
+                        <div
+                          key={aba.id}
+                          className={classNames("file-tab", abaAtiva === aba.id && "is-active")}
+                          onClick={() => setAbaAtiva(aba.id)}
+                        >
+                          <span className="file-tab-icon">📄</span>
+                          <span className="file-tab-name">{aba.nome}</span>
+                          {aba.dirty && <span className="file-tab-dot">●</span>}
+                          <button
+                            type="button"
+                            className="file-tab-close"
+                            onClick={(e) => fecharAba(aba.id, e)}
+                            aria-label="Fechar aba"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Barra de ações do arquivo */}
+                    {abaAtual && (
+                      <div className="editor-actions-bar">
+                        <span className="editor-file-path">{abaAtual.path}</span>
+                        <div className="editor-actions">
+                          <button
+                            type="button"
+                            className="button button-tertiary"
+                            onClick={() => setBuscaAberta(prev => !prev)}
+                            title="Buscar no arquivo (Ctrl+F)"
+                          >
+                            🔍 Buscar
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-tertiary"
+                            onClick={copiar_codigo}
+                            disabled={loading}
+                            title="Copiar código (Ctrl+Shift+C)"
+                          >
+                            {copiando ? "✓ Copiado!" : "📋 Copiar"}
+                          </button>
+                          {dirty && (
+                            <button
+                              type="button"
+                              className="button button-primary"
+                              onClick={persistirArquivo}
+                              disabled={loading}
+                            >
+                              💾 Salvar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Barra de busca (Ctrl+F) */}
+                    {buscaAberta && abaAtual && (
+                      <div className="search-bar">
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Buscar no arquivo..."
+                          value={textoBusca}
+                          onChange={(e) => realizarBusca(e.target.value)}
+                          autoFocus
+                        />
+                        <div className="search-controls">
+                          <span className="search-count">
+                            {resultadosBusca.length > 0
+                              ? `${indiceBuscaAtual + 1} de ${resultadosBusca.length}`
+                              : textoBusca ? "0 resultados" : ""}
+                          </span>
+                          <button
+                            type="button"
+                            className="button button-tertiary"
+                            onClick={buscaAnterior}
+                            disabled={resultadosBusca.length === 0}
+                            title="Anterior"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-tertiary"
+                            onClick={proximaBusca}
+                            disabled={resultadosBusca.length === 0}
+                            title="Próximo"
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-tertiary"
+                            onClick={() => {
+                              setBuscaAberta(false);
+                              setTextoBusca("");
+                              setResultadosBusca([]);
+                            }}
+                            title="Fechar (ESC)"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="code-surface" style={{ position: "relative", display: "flex" }}>
                       <pre
                         ref={gutterRef}
@@ -946,7 +1403,7 @@ export default function App() {
                         <textarea
                           ref={textareaRef}
                           value={conteudo}
-                          onChange={(e) => setConteudo(e.target.value)}
+                          onChange={(e) => atualizarConteudoAba(e.target.value)}
                           onScroll={onEditorScroll}
                           className="code-textarea"
                           style={{
@@ -976,14 +1433,21 @@ export default function App() {
                         />
                       </div>
 
-                      {dirty && (
+                      {dirty && abaAtual && (
                         <div className="diff-bar">
                           <div className="diff-info">
-                            <span>alterações não salvas {arquivoAtual ? `em ${arquivoAtual}` : ""}</span>
+                            <span>alterações não salvas em {abaAtual.path}</span>
                             <button
                               type="button"
                               className="button button-tertiary"
-                              onClick={() => setConteudo(original)}
+                              onClick={() => {
+                                setAbas(prev => prev.map(aba => {
+                                  if (aba.id === abaAtiva) {
+                                    return { ...aba, conteudo: aba.original, dirty: false };
+                                  }
+                                  return aba;
+                                }));
+                              }}
                               disabled={loading}
                             >
                               Descartar alterações
@@ -1006,6 +1470,17 @@ export default function App() {
                             </header>
                             {arquivo && <div className="history-entry-file">{arquivo}</div>}
                             {item.descricao && <p className="history-entry-description">{item.descricao}</p>}
+                            {item.diff && (
+                              <div className="history-entry-actions">
+                                <button
+                                  type="button"
+                                  className="button button-tertiary"
+                                  onClick={() => abrirDiffViewer(item)}
+                                >
+                                  👁️ Visualizar alterações
+                                </button>
+                              </div>
+                            )}
                           </article>
                         );
                       })
@@ -1153,6 +1628,162 @@ export default function App() {
             >
               Fechar
             </button>
+          </div>
+        </div>
+      )}
+
+      {diffViewerAberto && diffAtual && (
+        <div className="diff-viewer-modal" onClick={() => setDiffViewerAberto(false)}>
+          <div className="diff-viewer-container" onClick={(e) => e.stopPropagation()}>
+            <div className="diff-viewer-header">
+              <div className="diff-viewer-title">
+                <div className="diff-viewer-file">{diffAtual.arquivo}</div>
+                <div className="diff-viewer-meta">
+                  {diffAtual.tipo.replace(/_/g, ' ')} • {formatTimestamp(diffAtual.timestamp)}
+                </div>
+              </div>
+              <div className="diff-viewer-controls">
+                <div className="diff-stats">
+                  <span className="diff-stat-add">
+                    +{diffAtual.modified.filter(l => l.type === 'added').length}
+                  </span>
+                  <span className="diff-stat-remove">
+                    -{diffAtual.original.filter(l => l.type === 'removed').length}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="button button-tertiary"
+                  onClick={() => setDiffViewerAberto(false)}
+                >
+                  ✕ Fechar
+                </button>
+              </div>
+            </div>
+
+            <div className="diff-split-view">
+              <div className="diff-pane">
+                <div className="diff-pane-header diff-pane-header--original">
+                  <span>━</span>
+                  Original
+                </div>
+                <div
+                  className="diff-pane-content"
+                  ref={diffPaneLeftRef}
+                  onScroll={() => sincronizarScroll('left')}
+                >
+                  <div className="diff-line-container">
+                    <div className="diff-gutter">
+                      {diffAtual.original.map((line, idx) => (
+                        <div key={idx} style={{ minHeight: '21px', padding: '2px 0' }}>
+                          {line.lineNum || ''}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="diff-code-lines">
+                      {diffAtual.original.map((line, idx) => (
+                        <div
+                          key={idx}
+                          className={classNames(
+                            'diff-code-line',
+                            line.type === 'removed' && 'diff-line-removed',
+                            line.type === 'empty' && 'diff-line-empty',
+                            line.type === 'context' && 'diff-line-context'
+                          )}
+                        >
+                          <div className="diff-code-line-content">
+                            {line.content}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="diff-separator" />
+
+              <div className="diff-pane">
+                <div className="diff-pane-header diff-pane-header--modified">
+                  <span>+</span>
+                  Modificado
+                </div>
+                <div
+                  className="diff-pane-content"
+                  ref={diffPaneRightRef}
+                  onScroll={() => sincronizarScroll('right')}
+                >
+                  <div className="diff-line-container">
+                    <div className="diff-gutter">
+                      {diffAtual.modified.map((line, idx) => (
+                        <div key={idx} style={{ minHeight: '21px', padding: '2px 0' }}>
+                          {line.lineNum || ''}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="diff-code-lines">
+                      {diffAtual.modified.map((line, idx) => (
+                        <div
+                          key={idx}
+                          className={classNames(
+                            'diff-code-line',
+                            line.type === 'added' && 'diff-line-added',
+                            line.type === 'empty' && 'diff-line-empty',
+                            line.type === 'context' && 'diff-line-context'
+                          )}
+                        >
+                          <div className="diff-code-line-content">
+                            {line.content}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {diffAtual.changes.length > 0 && (
+                <div className="diff-navigation">
+                  <button
+                    type="button"
+                    className="diff-nav-button"
+                    onClick={() => navegarParaMudanca('prev')}
+                    disabled={indiceMudancaAtual === 0}
+                    title="Mudança anterior"
+                  >
+                    ↑
+                  </button>
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#94a3b8',
+                    textAlign: 'center',
+                    padding: '4px',
+                    fontFamily: '"Fira Code", monospace'
+                  }}>
+                    {indiceMudancaAtual + 1}/{diffAtual.changes.length}
+                  </div>
+                  <button
+                    type="button"
+                    className="diff-nav-button"
+                    onClick={() => navegarParaMudanca('next')}
+                    disabled={indiceMudancaAtual === diffAtual.changes.length - 1}
+                    title="Próxima mudança"
+                  >
+                    ↓
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="diff-viewer-footer">
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => setDiffViewerAberto(false)}
+              >
+                Fechar visualizador
+              </button>
+            </div>
           </div>
         </div>
       )}
