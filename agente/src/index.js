@@ -21,7 +21,10 @@ import {
   buscarHistorico,
   salvarConversa,
   buscarConversas,
-  listarProjetos
+  listarProjetos,
+  salvarVersaoArquivo,
+  buscarVersoesArquivo,
+  restaurarVersaoArquivo
 } from "./database.js";
 import {
   gerarMudancaInteligente,
@@ -350,6 +353,24 @@ app.post("/mudancas/aprovar", async (req, res) => {
     if (!mudanca) return res.status(404).json({ erro: "Mudança não encontrada" });
 
     const arquivoPath = path.join(estado.pasta, mudanca.arquivo);
+    
+    let conteudoOriginal = "";
+    try {
+      conteudoOriginal = await fs.promises.readFile(arquivoPath, "utf-8");
+    } catch (e) {
+      conteudoOriginal = "";
+    }
+    
+    if (conteudoOriginal) {
+      salvarVersaoArquivo(
+        estado.projetoId, 
+        mudanca.arquivo, 
+        conteudoOriginal, 
+        `Versão antes da mudança: ${mudanca.descricao || 'alteração'}`,
+        mudancaId
+      );
+    }
+    
     await fs.promises.mkdir(path.dirname(arquivoPath), { recursive: true });
     await fs.promises.writeFile(arquivoPath, mudanca.conteudo_novo, "utf-8");
 

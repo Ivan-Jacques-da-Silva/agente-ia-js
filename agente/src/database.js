@@ -69,12 +69,25 @@ db.exec(`
     FOREIGN KEY (projeto_id) REFERENCES projetos(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS versoes_arquivo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    projeto_id INTEGER NOT NULL,
+    mudanca_id INTEGER,
+    arquivo TEXT NOT NULL,
+    conteudo TEXT,
+    descricao TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (projeto_id) REFERENCES projetos(id) ON DELETE CASCADE,
+    FOREIGN KEY (mudanca_id) REFERENCES mudancas_pendentes(id) ON DELETE SET NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_projetos_url ON projetos(repositorio_url);
   CREATE INDEX IF NOT EXISTS idx_arquivos_projeto ON arquivos_contexto(projeto_id);
   CREATE INDEX IF NOT EXISTS idx_mudancas_projeto ON mudancas_pendentes(projeto_id);
   CREATE INDEX IF NOT EXISTS idx_mudancas_status ON mudancas_pendentes(status);
   CREATE INDEX IF NOT EXISTS idx_historico_projeto ON historico(projeto_id);
   CREATE INDEX IF NOT EXISTS idx_conversas_projeto ON conversas(projeto_id);
+  CREATE INDEX IF NOT EXISTS idx_versoes_arquivo ON versoes_arquivo(projeto_id, arquivo);
 `);
 
 export function criarProjeto(nome, repositorioUrl, caminhoLocal = null, branchPadrao = "main") {
@@ -211,6 +224,30 @@ export function listarProjetos(limite = 50) {
     LIMIT ?
   `);
   return stmt.all(limite);
+}
+
+export function salvarVersaoArquivo(projetoId, arquivo, conteudo, descricao = "Versão salva automaticamente", mudancaId = null) {
+  const stmt = db.prepare(`
+    INSERT INTO versoes_arquivo (projeto_id, mudanca_id, arquivo, conteudo, descricao)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const info = stmt.run(projetoId, mudancaId, arquivo, conteudo, descricao);
+  return info.lastInsertRowid;
+}
+
+export function buscarVersoesArquivo(projetoId, arquivo, limite = 10) {
+  const stmt = db.prepare(`
+    SELECT * FROM versoes_arquivo
+    WHERE projeto_id = ? AND arquivo = ?
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `);
+  return stmt.all(projetoId, arquivo, limite);
+}
+
+export function restaurarVersaoArquivo(versaoId) {
+  const stmt = db.prepare("SELECT * FROM versoes_arquivo WHERE id = ?");
+  return stmt.get(versaoId);
 }
 
 export { db };
