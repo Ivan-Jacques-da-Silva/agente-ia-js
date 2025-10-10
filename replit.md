@@ -31,6 +31,13 @@ O projeto é estruturado em 3 workspaces principais:
 - Geração inteligente de mudanças de código
 - Memória persistente em SQLite (`~/.agente-ia/agente.db`)
 
+### 🖼️ Análise de Imagem com IA
+- Upload e análise de imagens usando modelo de visão (LLaVA)
+- Streaming em tempo real com visualização progressiva
+- Timeline interativa mostrando o progresso da análise
+- Botão de interromper análise a qualquer momento
+- Contextualização automática para o agente entender imagens
+
 ### 📊 Sistema de Memória
 - Histórico completo de projetos e mudanças
 - Contexto de arquivos acessados
@@ -87,7 +94,17 @@ Quando o agente propor mudanças:
 3. Aprove ou rejeite individualmente
 4. Mudanças aprovadas são aplicadas automaticamente
 
-### 4. Fazer Commit
+### 4. Analisar Imagens (Novo!)
+
+Para adicionar contexto visual ao agente:
+1. Clique em "📎 Selecionar Imagem"
+2. Escolha uma imagem (screenshot, diagrama, mockup)
+3. Clique em "🚀 Analisar Imagem"
+4. Veja a análise em tempo real com streaming
+5. Use "⏸️ Interromper" se quiser cancelar
+6. O resultado será automaticamente contextualizado no chat
+
+### 5. Fazer Commit
 
 Após aprovar e testar:
 - Clique em "Commit & Push"
@@ -100,10 +117,13 @@ Após aprovar e testar:
 O sistema requer **Ollama** rodando localmente em `http://localhost:11434`:
 
 ```bash
-# Instalar e configurar Ollama
+# Modelos de código (obrigatório)
 ollama pull qwen2.5-coder:7b
 # ou
 ollama pull codellama:7b
+
+# Modelo de visão para análise de imagem (opcional)
+ollama pull llava:7b
 ```
 
 ### Variáveis de Ambiente
@@ -113,6 +133,7 @@ ollama pull codellama:7b
 AGENTE_PORTA=6060
 OLLAMA_URL=http://localhost:11434
 LLM_MODEL=qwen2.5-coder:7b
+VISION_MODEL=llava:7b
 ```
 
 **api/.env (opcional):**
@@ -175,6 +196,15 @@ rm ~/.agente-ia/agente.db
 - Verifique se o projeto foi aberto corretamente
 - Certifique-se de que o agente está conectado
 - Reabra o projeto se necessário
+
+## Funcionalidades Recentes
+
+### ✅ Análise de Imagem com Streaming (Implementado!)
+- Upload e análise de imagens com LLaVA
+- Visualização progressiva tipo "thinking"
+- Timeline interativa com timestamps
+- Botão de interromper análise
+- Integração automática com chat
 
 ## Próximas Melhorias Planejadas
 
