@@ -22,36 +22,41 @@ export async function analisarIntencao(mensagem, projetoId, arvore) {
   const todosArquivos = arvore.filter(a => a.tipo === "file").map(a => a.path);
   const arquivosRelevantes = todosArquivos.slice(0, 300);
 
-  const prompt = `Voc2 8 um assistente de an2lise de c30digo. Analise a inten30o do usu2rio e identifique:
-1. Quais arquivos provavelmente precisam ser alterados
-2. Tipo de altera30o (cria30o, edi30o, exclus2o, refatora30o)
-3. Complexidade estimada (baixa, m5dia, alta)
-4. Riscos potenciais
+  const prompt = `Você é um assistente prestativo que ajuda desenvolvedores! 
 
-Mensagem do usu2rio: "${mensagem}"
+Vamos trabalhar juntos nesta solicitação:
+"${mensagem}"
 
-Arquivos dispon2veis no projeto (amostra):
+📁 Arquivos disponíveis no projeto:
 ${arquivosRelevantes.join("\n")}
 
-Contexto de arquivos recentemente acessados:
+📝 Arquivos trabalhados recentemente:
 ${contexto.map(c => `- ${c.caminho}`).join("\n")}
 
-Responda em JSON com:
+Por favor, identifique:
+1. Quais arquivos preciso modificar
+2. Tipo de mudança (criação, edição, exclusão, refatoração)
+3. Complexidade (baixa, média, alta)
+4. Pontos de atenção
+5. Plano de ação claro
+
+Responda em JSON:
 {
   "arquivos_alvo": ["caminho1", "caminho2"],
-  "tipo_mudanca": "edi30o|cria30o|exclus2o|refatora30o",
-  "complexidade": "baixa|m5dia|alta",
-  "riscos": ["risco1", "risco2"],
-  "plano_acao": "descri30o breve do que ser3 feito"
+  "tipo_mudanca": "edição|criação|exclusão|refatoração",
+  "complexidade": "baixa|média|alta",
+  "riscos": ["ponto1", "ponto2"],
+  "plano_acao": "Vou [explicar claramente o que farei para te ajudar]"
 }
 
 IMPORTANTE:
-- Sempre selecione caminhos que EXISTEM na lista de arquivos do projeto, quando for uma edi30o/refatora30o.
-- Se precisar criar um arquivo novo, indique um caminho plaus2vel dentro da estrutura existente.
+- Use SOMENTE arquivos que EXISTEM na lista do projeto
+- Para novos arquivos, escolha caminhos coerentes com a estrutura
+- Seja específico e claro no plano de ação
 `;
 
   try {
-    const resposta = await chat_simples("Analise a inten30o", prompt);
+    const resposta = await chat_simples("Analisando sua solicitação", prompt);
     const inicio = resposta.indexOf("{");
     const fim = resposta.lastIndexOf("}");
 
@@ -61,15 +66,15 @@ IMPORTANTE:
       return json;
     }
   } catch (e) {
-    console.error("Erro ao analisar inten30o:", e);
+    console.error("Erro ao analisar intenção:", e);
   }
 
   return {
     arquivos_alvo: [],
-    tipo_mudanca: "edi30o",
-    complexidade: "m5dia",
+    tipo_mudanca: "edição",
+    complexidade: "média",
     riscos: [],
-    plano_acao: "Executar a solicita30o do usu2rio"
+    plano_acao: "Vou executar sua solicitação da melhor forma possível"
   };
 }
 
@@ -139,25 +144,25 @@ function heuristicaArquivos(arvore, mensagem) {
 export async function gerarMudancaInteligente(mensagem, projetoId, pastaProjeto, arvore) {
   const passos = [];
   
-  passos.push(`Analisando estrutura do projeto`);
-  passos.push(`Total de arquivos identificados: ${arvore.filter(a=>a.tipo==='file').length}`);
+  passos.push(`✨ Analisando estrutura do seu projeto`);
+  passos.push(`📊 Total de arquivos identificados: ${arvore.filter(a=>a.tipo==='file').length}`);
   
   const tecnologias = detectarTecnologias(arvore);
   if (tecnologias.length > 0) {
-    passos.push(`Tecnologias detectadas: ${tecnologias.join(', ')}`);
+    passos.push(`🛠️ Tecnologias detectadas: ${tecnologias.join(', ')}`);
   }
   
-  passos.push(`Interpretando intenção da solicitação`);
+  passos.push(`🔍 Interpretando o que você precisa`);
   const analise = await analisarIntencao(mensagem, projetoId, arvore);
   
-  passos.push(`Tipo de mudança identificada: ${analise.tipo_mudanca || 'edição'}`);
-  passos.push(`Complexidade estimada: ${analise.complexidade || 'média'}`);
+  passos.push(`📝 Tipo de mudança: ${analise.tipo_mudanca || 'edição'}`);
+  passos.push(`⚡ Complexidade estimada: ${analise.complexidade || 'média'}`);
   
   if (analise.riscos && analise.riscos.length > 0) {
-    passos.push(`Riscos identificados: ${analise.riscos.slice(0, 2).join(', ')}`);
+    passos.push(`⚠️ Pontos de atenção: ${analise.riscos.slice(0, 2).join(', ')}`);
   }
   
-  passos.push(`Buscando arquivos relevantes no contexto`);
+  passos.push(`🔎 Buscando arquivos relevantes`);
   
   const arquivosContexto = [];
   let candidatos = Array.isArray(analise.arquivos_alvo) ? analise.arquivos_alvo.slice(0,5) : [];
@@ -165,17 +170,17 @@ export async function gerarMudancaInteligente(mensagem, projetoId, pastaProjeto,
   candidatos = candidatos.filter(c => conjunto.has(c));
   
   if (candidatos.length === 0) {
-    passos.push('Aplicando heurística para encontrar arquivos candidatos');
+    passos.push('🎯 Identificando os melhores arquivos candidatos');
     candidatos = heuristicaArquivos(arvore, mensagem);
   }
   
   if (candidatos.length) {
-    passos.push(`Arquivos selecionados para análise: ${candidatos.slice(0,3).join(', ')}`);
+    passos.push(`📁 Arquivos selecionados: ${candidatos.slice(0,3).join(', ')}`);
   } else {
-    passos.push('Nenhum arquivo candidato encontrado - análise baseada em contexto geral');
+    passos.push('📋 Trabalhando com contexto geral do projeto');
   }
 
-  passos.push(`Carregando conteúdo dos arquivos selecionados`);
+  passos.push(`📖 Carregando conteúdo dos arquivos`);
   
   for (const arquivoAlvo of candidatos) {
     try {
@@ -185,59 +190,62 @@ export async function gerarMudancaInteligente(mensagem, projetoId, pastaProjeto,
       if (existe) {
         const conteudo = await fs.promises.readFile(caminhoCompleto, "utf-8");
         const linhas = conteudo.split('\n').length;
-        passos.push(`Arquivo ${arquivoAlvo} carregado (${linhas} linhas)`);
+        passos.push(`✅ ${arquivoAlvo} carregado (${linhas} linhas)`);
         arquivosContexto.push({ caminho: arquivoAlvo, conteudo: conteudo.slice(0, 10000) });
         await salvarContextoArquivo(projetoId, arquivoAlvo, conteudo);
       }
     } catch (e) {
-      passos.push(`Erro ao carregar ${arquivoAlvo}: ${e.message}`);
+      passos.push(`❌ Erro ao carregar ${arquivoAlvo}: ${e.message}`);
       console.error(`Erro ao ler ${arquivoAlvo}:`, e);
     }
   }
   
-  passos.push(`Preparando análise para geração de código`);
-  passos.push(`Utilizando contexto de ${arquivosContexto.length} arquivo(s)`);
+  passos.push(`💡 Preparando código otimizado`);
+  passos.push(`📦 Usando contexto de ${arquivosContexto.length} arquivo(s)`);
 
   const listaArquivos = arvore.filter(a => a.tipo === 'file').slice(0, 500).map(a => a.path).join('\n');
 
-  const prompt = `Voc2 8 um desenvolvedor experiente. Gere as altera55es necess5rias para atender ao pedido.
+  const prompt = `Você é um desenvolvedor experiente e prestativo! Vamos criar código de qualidade.
 
-Pedido: "${mensagem}"
+🎯 Solicitação do usuário:
+"${mensagem}"
 
-Plano de a50o: ${analise.plano_acao}
+📋 Plano de ação:
+${analise.plano_acao}
 
-Arquivos para alterar:
+📁 Arquivos para modificar:
 ${arquivosContexto.map(a => `
 Arquivo: ${a.caminho}
-Conte40do atual:
+Conteúdo atual:
 \`\`\`
 ${a.conteudo}
 \`\`\`
 `).join("\n")}
 
-Arquivos existentes no projeto (amostra):
+📂 Estrutura do projeto (amostra):
 ${listaArquivos}
 
-Responda em JSON com um array de mudan55es:
+Responda em JSON com as mudanças necessárias:
 {
   "mudancas": [
     {
       "arquivo": "caminho/do/arquivo.js",
-      "conteudo_novo": "conte40do completo do arquivo atualizado",
-      "descricao": "descri30o breve da mudan5a"
+      "conteudo_novo": "conteúdo completo do arquivo atualizado",
+      "descricao": "Descrição clara da mudança feita"
     }
   ],
   "mensagem_commit": "mensagem descritiva para o commit"
 }
 
 IMPORTANTE:
-- Retorne o conte40do COMPLETO de cada arquivo, n5o apenas as linhas alteradas.
-- Se nenhum arquivo alvo foi fornecido acima, escolha 1 a 3 caminhos EXISTENTES da lista e preencha o campo "arquivo" com esses caminhos exatos.
-- Se precisar criar arquivo novo, indique um caminho coerente com a estrutura mostrada.
+- Retorne o conteúdo COMPLETO de cada arquivo, não apenas trechos
+- Use caminhos EXATOS da lista de arquivos do projeto
+- Mantenha a formatação e estilo do código existente
+- Seja claro nas descrições das mudanças
 `;
 
   try {
-    const resposta = await chat_simples("Gere as mudan5as", prompt);
+    const resposta = await chat_simples("Gerando código otimizado", prompt);
     const inicio = resposta.indexOf("{");
     const fim = resposta.lastIndexOf("}");
 
@@ -247,12 +255,12 @@ IMPORTANTE:
       return { ...json, analise: { ...analise, passos } };
     }
   } catch (e) {
-    console.error("Erro ao gerar mudan5as:", e);
+    console.error("Erro ao gerar mudanças:", e);
   }
 
   return {
     mudancas: [],
-    mensagem_commit: "Altera55es via agente",
+    mensagem_commit: "Alterações via agente",
     analise: { ...analise, passos }
   };
 }
