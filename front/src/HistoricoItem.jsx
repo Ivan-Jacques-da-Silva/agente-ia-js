@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { criarDiffVisualizer } from './chat-utils';
 
-export function HistoricoItem({ item, onVisualizarDiff }) {
+export function HistoricoItem({ item, onVisualizarDiff, onRestaurarCodigo }) {
   const [expandido, setExpandido] = useState(false);
   const [copiado, setCopiado] = useState(null);
 
@@ -80,42 +80,70 @@ export function HistoricoItem({ item, onVisualizarDiff }) {
                 <div className="historico-codigo-bloco">
                   <div className="historico-codigo-header">
                     <span>Código Anterior</span>
-                    <button
-                      type="button"
-                      className="button button-tertiary button-sm"
-                      onClick={() => copiarCodigo(dadosMudanca.conteudo_original, 'original')}
-                    >
-                      {copiado === 'original' ? (
-                        <><i className="fas fa-check"></i> Copiado!</>
-                      ) : (
-                        <><i className="fas fa-copy"></i> Copiar</>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="button button-tertiary button-sm"
+                        onClick={() => copiarCodigo(dadosMudanca.conteudo_original, 'original')}
+                      >
+                        {copiado === 'original' ? (
+                          <><i className="fas fa-check"></i> Copiado!</>
+                        ) : (
+                          <><i className="fas fa-copy"></i> Copiar</>
+                        )}
+                      </button>
+                      {onRestaurarCodigo && (
+                        <button
+                          type="button"
+                          className="button button-secondary button-sm"
+                          onClick={() => {
+                            if (confirm('Deseja restaurar o código anterior? Isso sobrescreverá o código atual.')) {
+                              onRestaurarCodigo(dadosMudanca.arquivo, dadosMudanca.conteudo_original);
+                            }
+                          }}
+                        >
+                          <i className="fas fa-undo"></i> Restaurar
+                        </button>
                       )}
-                    </button>
+                    </div>
                   </div>
-                  <pre className="historico-codigo-preview">
-                    {dadosMudanca.conteudo_original.slice(0, 500)}
-                    {dadosMudanca.conteudo_original.length > 500 && '...'}
+                  <pre className="historico-codigo-preview" style={{ maxHeight: '400px', overflow: 'auto' }}>
+                    {dadosMudanca.conteudo_original}
                   </pre>
                 </div>
 
                 <div className="historico-codigo-bloco">
                   <div className="historico-codigo-header">
                     <span>Código Novo</span>
-                    <button
-                      type="button"
-                      className="button button-tertiary button-sm"
-                      onClick={() => copiarCodigo(dadosMudanca.conteudo_novo, 'novo')}
-                    >
-                      {copiado === 'novo' ? (
-                        <><i className="fas fa-check"></i> Copiado!</>
-                      ) : (
-                        <><i className="fas fa-copy"></i> Copiar</>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="button button-tertiary button-sm"
+                        onClick={() => copiarCodigo(dadosMudanca.conteudo_novo, 'novo')}
+                      >
+                        {copiado === 'novo' ? (
+                          <><i className="fas fa-check"></i> Copiado!</>
+                        ) : (
+                          <><i className="fas fa-copy"></i> Copiar</>
+                        )}
+                      </button>
+                      {onRestaurarCodigo && (
+                        <button
+                          type="button"
+                          className="button button-secondary button-sm"
+                          onClick={() => {
+                            if (confirm('Deseja aplicar esta versão do código? Isso sobrescreverá o código atual.')) {
+                              onRestaurarCodigo(dadosMudanca.arquivo, dadosMudanca.conteudo_novo);
+                            }
+                          }}
+                        >
+                          <i className="fas fa-redo"></i> Aplicar
+                        </button>
                       )}
-                    </button>
+                    </div>
                   </div>
-                  <pre className="historico-codigo-preview">
-                    {dadosMudanca.conteudo_novo.slice(0, 500)}
-                    {dadosMudanca.conteudo_novo.length > 500 && '...'}
+                  <pre className="historico-codigo-preview" style={{ maxHeight: '400px', overflow: 'auto' }}>
+                    {dadosMudanca.conteudo_novo}
                   </pre>
                 </div>
               </div>

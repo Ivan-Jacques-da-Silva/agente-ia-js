@@ -330,25 +330,27 @@ export default function App() {
 
   const carregarMudancasPendentes = useCallback(async () => {
     if (!requireAgentReady()) return;
+    if (!projetoAtual?.id) return;
     try {
-      const r = await fetch(buildUrl(agenteUrl, "/mudancas/pendentes"));
+      const r = await fetch(buildUrl(agenteUrl, `/mudancas/pendentes?projetoId=${projetoAtual.id}`));
       const j = await parseJsonResponse(r, "Falha ao carregar mudanças");
       setMudancasPendentes(j.mudancas || []);
     } catch (e) {
       console.error("Erro ao carregar mudanças:", e);
     }
-  }, [agenteUrl, requireAgentReady]);
+  }, [agenteUrl, requireAgentReady, projetoAtual]);
 
   const carregarHistorico = useCallback(async () => {
     if (!requireAgentReady()) return;
+    if (!projetoAtual?.id) return;
     try {
-      const r = await fetch(buildUrl(agenteUrl, "/historico"));
+      const r = await fetch(buildUrl(agenteUrl, `/historico?projetoId=${projetoAtual.id}`));
       const j = await parseJsonResponse(r, "Falha ao carregar histórico");
       setHistorico(j.historico || []);
     } catch (e) {
       console.error("Erro ao carregar histórico:", e);
     }
-  }, [agenteUrl, requireAgentReady]);
+  }, [agenteUrl, requireAgentReady, projetoAtual]);
 
   async function abrir_repo() {
     setErro("");
@@ -398,6 +400,10 @@ export default function App() {
 
   async function abrir_arquivo(p) {
     if (!requireAgentReady()) return;
+    if (!projetoAtual?.id) {
+      setErro("Nenhum projeto aberto");
+      return;
+    }
 
     // Verificar se o arquivo já está aberto em uma aba
     const abaExistente = abas.find(aba => aba.path === p);
@@ -407,7 +413,7 @@ export default function App() {
     }
 
     try {
-      const r = await fetch(buildUrl(agenteUrl, `/repo/file?path=${encodeURIComponent(p)}`));
+      const r = await fetch(buildUrl(agenteUrl, `/repo/file?path=${encodeURIComponent(p)}&projetoId=${projetoAtual.id}`));
       const t = await r.text();
 
       const novaAba = {
@@ -473,12 +479,16 @@ export default function App() {
     const abaAtual = abas.find(a => a.id === abaAtiva);
     if (!abaAtual) return;
     if (!requireAgentReady()) return;
+    if (!projetoAtual?.id) {
+      setErro("Nenhum projeto aberto");
+      return;
+    }
 
     await runWithLoading("Salvando arquivo...", async () => {
       const r = await fetch(buildUrl(agenteUrl, "/repo/save"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: abaAtual.path, conteudo: abaAtual.conteudo }),
+        body: JSON.stringify({ projetoId: projetoAtual.id, path: abaAtual.path, conteudo: abaAtual.conteudo }),
       });
 
       await parseJsonResponse(r, "Falha ao salvar arquivo");
@@ -496,14 +506,51 @@ export default function App() {
     });
   }
 
+  async function restaurarCodigo(caminhoArquivo, conteudo) {
+    if (!requireAgentReady()) return;
+    if (!projetoAtual?.id) {
+      setErro("Nenhum projeto aberto");
+      return;
+    }
+
+    await runWithLoading("Restaurando código...", async () => {
+      const r = await fetch(buildUrl(agenteUrl, "/repo/save"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projetoId: projetoAtual.id, path: caminhoArquivo, conteudo }),
+      });
+
+      await parseJsonResponse(r, "Falha ao restaurar código");
+
+      // Se o arquivo está aberto em uma aba, atualizar o conteúdo
+      const abaExistente = abas.find(aba => aba.path === caminhoArquivo);
+      if (abaExistente) {
+        setAbas(prev => prev.map(aba => {
+          if (aba.path === caminhoArquivo) {
+            return { ...aba, conteudo, original: conteudo, dirty: false };
+          }
+          return aba;
+        }));
+      }
+
+      setErro("");
+      await carregarHistorico();
+      alert("Código restaurado com sucesso!");
+    });
+  }
+
   async function commit_push() {
     if (!requireAgentReady()) return;
+    if (!projetoAtual?.id) {
+      setErro("Nenhum projeto aberto");
+      return;
+    }
 
     await runWithLoading("Realizando commit...", async () => {
       const r = await fetch(buildUrl(agenteUrl, "/repo/commit"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mensagem: `feat: atualizações em ${arquivoAtual || "projeto"}` }),
+        body: JSON.stringify({ projetoId: projetoAtual.id, mensagem: `feat: atualizações em ${arquivoAtual || "projeto"}` }),
       });
 
       await parseJsonResponse(r, "Falha ao realizar commit");
@@ -520,6 +567,10 @@ export default function App() {
       setErro("Aguardando conexão com o agente para enviar mensagens.");
       return;
     }
+    if (!projetoAtual?.id) {
+      setErro("Nenhum projeto aberto");
+      return;
+    }
 
     const userMessage = createMessage("user", msg);
     const etapasMsg = createMessage("agent", "", { pending: true });
@@ -534,6 +585,7 @@ export default function App() {
     await enviarChatComStreaming(
       msg,
       agenteUrl,
+      projetoAtual.id,
       (etapa) => {
         setChatMessages((prev) => 
           prev.map((m) => 
@@ -674,12 +726,16 @@ export default function App() {
 
   async function aprovarMudanca(mudancaId) {
     if (!requireAgentReady()) return;
+    if (!projetoAtual?.id) {
+      setErro("Nenhum projeto aberto");
+      return;
+    }
 
     await runWithLoading("Aplicando mudança...", async () => {
       const r = await fetch(buildUrl(agenteUrl, "/mudancas/aprovar"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mudancaId }),
+        body: JSON.stringify({ projetoId: projetoAtual.id, mudancaId }),
       });
 
       await parseJsonResponse(r, "Falha ao aprovar mudança");
@@ -692,12 +748,16 @@ export default function App() {
 
   async function rejeitarMudanca(mudancaId) {
     if (!requireAgentReady()) return;
+    if (!projetoAtual?.id) {
+      setErro("Nenhum projeto aberto");
+      return;
+    }
 
     await runWithLoading("Rejeitando mudança...", async () => {
       const r = await fetch(buildUrl(agenteUrl, "/mudancas/rejeitar"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mudancaId }),
+        body: JSON.stringify({ projetoId: projetoAtual.id, mudancaId }),
       });
 
       await parseJsonResponse(r, "Falha ao rejeitar mudança");
@@ -1706,6 +1766,7 @@ export default function App() {
                             setIndiceMudancaAtual(0);
                             setDiffViewerAberto(true);
                           }}
+                          onRestaurarCodigo={restaurarCodigo}
                         />
                       ))
                     ) : (

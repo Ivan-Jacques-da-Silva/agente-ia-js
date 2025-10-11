@@ -1,6 +1,7 @@
 export async function enviarChatComStreaming(
   mensagem,
   agenteUrl,
+  projetoId,
   onEtapa,
   onCompleto,
   onErro
@@ -9,7 +10,7 @@ export async function enviarChatComStreaming(
     const response = await fetch(`${agenteUrl}/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mensagem }),
+      body: JSON.stringify({ projetoId, mensagem }),
     });
 
     if (!response.ok) {

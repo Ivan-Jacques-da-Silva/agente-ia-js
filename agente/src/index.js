@@ -11,6 +11,7 @@ import {
   criarProjeto,
   buscarProjetoPorUrl,
   buscarProjetoPorCaminho,
+  buscarProjetoPorId,
   atualizarUltimoAcesso,
   atualizarCaminhoProjeto,
   criarMudancaPendente,
@@ -42,12 +43,6 @@ app.get("/saude", (_req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   res.json({ ok: true });
 });
-
-const estado = {
-  pasta: null,
-  projetoId: null,
-  url: null,
-};
 
 async function pathExists(target) {
   try {
@@ -120,86 +115,63 @@ app.post("/repo/abrir", async (req, res) => {
       return res.status(400).json({ erro: "repositorioUrl ou caminhoLocal é obrigatório" });
     }
 
-    let pasta = caminhoLocal;
-    let projetoExistente = null;
-
-    if (caminhoLocal) {
-      projetoExistente = buscarProjetoPorCaminho(caminhoLocal);
-    } else if (repositorioUrl) {
-      projetoExistente = buscarProjetoPorUrl(repositorioUrl);
-    }
-
-      const nomeProjeto = repositorioUrl
+    const nomeProjeto = repositorioUrl
       ? repositorioUrl.split("/").pop().replace(".git", "")
       : caminhoLocal
         ? path.basename(caminhoLocal)
         : "projeto";
 
-    if (!projetoExistente) {
-      if (!caminhoLocal && repositorioUrl) {
+    let pasta = caminhoLocal;
+
+    // Sempre cria um novo projeto para isolamento completo entre chats
+    if (!caminhoLocal && repositorioUrl) {
+      // Verifica se já existe um repositório clonado para reutilizar o diretório
+      const projetoExistente = buscarProjetoPorUrl(repositorioUrl);
+      
+      if (projetoExistente && projetoExistente.caminho_local && await pathExists(projetoExistente.caminho_local)) {
+        // Reutiliza o diretório do repositório já clonado
+        pasta = projetoExistente.caminho_local;
+      } else {
+        // Clona o repositório em um novo diretório
         pasta = await resolveWorkspaceDirectory(nomeProjeto);
         await clonar_repositorio(repositorioUrl, pasta, token);
         await criar_branch(pasta, `agente/${Date.now()}`, branchBase);
       }
-
-      const projetoId = criarProjeto(nomeProjeto, repositorioUrl || "", pasta, branchBase || "main");
-      projetoExistente = { id: projetoId, nome: nomeProjeto };
-      registrarHistorico(projetoId, "projeto_criado", "Projeto aberto pela primeira vez");
-    } else {
-      pasta = projetoExistente.caminho_local;
-      const projetoNome = projetoExistente.nome || nomeProjeto;
-
-      if (!pasta && repositorioUrl) {
-        pasta = await resolveWorkspaceDirectory(projetoNome);
-        await clonar_repositorio(repositorioUrl, pasta, token);
-        await criar_branch(pasta, `agente/${Date.now()}`, branchBase);
-        atualizarCaminhoProjeto(projetoExistente.id, pasta);
-      } else if (pasta && repositorioUrl && !(await pathExists(pasta))) {
-        pasta = await resolveWorkspaceDirectory(projetoNome);
-        await clonar_repositorio(repositorioUrl, pasta, token);
-        await criar_branch(pasta, `agente/${Date.now()}`, branchBase);
-        atualizarCaminhoProjeto(projetoExistente.id, pasta);
-      }
-
-      atualizarUltimoAcesso(projetoExistente.id);
-      registrarHistorico(projetoExistente.id, "projeto_reaberto", "Projeto reaberto");
     }
 
-    estado.pasta = pasta;
-    estado.projetoId = projetoExistente.id;
-    estado.url = repositorioUrl;
+    // Sempre cria um novo projeto (não reutiliza)
+    const projetoId = criarProjeto(nomeProjeto, repositorioUrl || "", pasta, branchBase || "main");
+    const novoProjeto = { id: projetoId, nome: nomeProjeto };
+    registrarHistorico(projetoId, "projeto_criado", "Projeto aberto em novo chat");
 
     const arvore = await listar_arvore(pasta);
-    const conversas = buscarConversas(projetoExistente.id, 10);
-    const historico = buscarHistorico(projetoExistente.id, 20);
-    const mudancasPendentes = buscarMudancasPendentes(projetoExistente.id);
+    const mudancasPendentes = buscarMudancasPendentes(projetoId);
 
     res.json({
       ok: true,
-      projeto: projetoExistente,
+      projeto: novoProjeto,
       pasta,
       arvore,
-      conversas: conversas.map(c => ({
-        mensagem: c.mensagem,
-        resposta: c.resposta,
-        timestamp: c.timestamp
-      })),
-      historico: historico.map(h => ({
-        tipo: h.tipo,
-        descricao: h.descricao,
-        timestamp: h.timestamp
-      })),
-      mudancasPendentes: mudancasPendentes.length
+      conversas: [],
+      historico: [],
+      mudancasPendentes: mudancasPendentes
     });
   } catch (e) {
     res.status(500).json({ erro: String(e?.message || e) });
   }
 });
 
-app.get("/repo/tree", async (_req, res) => {
+app.get("/repo/tree", async (req, res) => {
   try {
-    if (!estado.pasta) return res.status(400).json({ erro: "Nenhum repositório aberto" });
-    const arvore = await listar_arvore(estado.pasta);
+    const projetoId = req.query.projetoId ? parseInt(req.query.projetoId) : null;
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
+    
+    const projeto = buscarProjetoPorId(projetoId);
+    if (!projeto || !projeto.caminho_local) {
+      return res.status(400).json({ erro: "Projeto não encontrado ou sem caminho local" });
+    }
+    
+    const arvore = await listar_arvore(projeto.caminho_local);
     res.json({ arvore });
   } catch (e) {
     res.status(500).json({ erro: String(e?.message || e) });
@@ -208,10 +180,18 @@ app.get("/repo/tree", async (_req, res) => {
 
 app.get("/repo/file", async (req, res) => {
   try {
-    if (!estado.pasta) return res.status(400).json({ erro: "Nenhum repositório aberto" });
+    const projetoId = req.query.projetoId ? parseInt(req.query.projetoId) : null;
     const rel = req.query.path;
+    
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
     if (!rel) return res.status(400).json({ erro: "path é obrigatório" });
-    const full = path.join(estado.pasta, rel);
+    
+    const projeto = buscarProjetoPorId(projetoId);
+    if (!projeto || !projeto.caminho_local) {
+      return res.status(400).json({ erro: "Projeto não encontrado ou sem caminho local" });
+    }
+    
+    const full = path.join(projeto.caminho_local, rel);
     const data = await fs.promises.readFile(full, "utf-8");
     res.type("text/plain").send(data);
   } catch (e) {
@@ -221,16 +201,21 @@ app.get("/repo/file", async (req, res) => {
 
 app.post("/repo/save", async (req, res) => {
   try {
-    if (!estado.pasta) return res.status(400).json({ erro: "Nenhum repositório aberto" });
-    const { path: rel, conteudo } = req.body || {};
+    const { projetoId, path: rel, conteudo } = req.body || {};
+    
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
     if (!rel) return res.status(400).json({ erro: "path é obrigatório" });
-    const full = path.join(estado.pasta, rel);
+    
+    const projeto = buscarProjetoPorId(projetoId);
+    if (!projeto || !projeto.caminho_local) {
+      return res.status(400).json({ erro: "Projeto não encontrado ou sem caminho local" });
+    }
+    
+    const full = path.join(projeto.caminho_local, rel);
     await fs.promises.mkdir(path.dirname(full), { recursive: true });
     await fs.promises.writeFile(full, conteudo ?? "", "utf-8");
 
-    if (estado.projetoId) {
-      registrarHistorico(estado.projetoId, "arquivo_salvo", `Arquivo ${rel} salvo manualmente`);
-    }
+    registrarHistorico(projetoId, "arquivo_salvo", `Arquivo ${rel} salvo manualmente`);
 
     res.json({ ok: true });
   } catch (e) {
@@ -240,13 +225,17 @@ app.post("/repo/save", async (req, res) => {
 
 app.post("/repo/commit", async (req, res) => {
   try {
-    if (!estado.pasta) return res.status(400).json({ erro: "Nenhum repositório aberto" });
-    const { mensagem } = req.body || {};
-    await commit_e_push(estado.pasta, mensagem || "chore: atualizações via Agente");
-
-    if (estado.projetoId) {
-      registrarHistorico(estado.projetoId, "commit_realizado", mensagem || "Commit automático");
+    const { projetoId, mensagem } = req.body || {};
+    
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
+    
+    const projeto = buscarProjetoPorId(projetoId);
+    if (!projeto || !projeto.caminho_local) {
+      return res.status(400).json({ erro: "Projeto não encontrado ou sem caminho local" });
     }
+    
+    await commit_e_push(projeto.caminho_local, mensagem || "chore: atualizações via Agente");
+    registrarHistorico(projetoId, "commit_realizado", mensagem || "Commit automático");
 
     res.json({ ok: true });
   } catch (e) {
@@ -256,19 +245,22 @@ app.post("/repo/commit", async (req, res) => {
 
 app.post("/chat/inteligente", async (req, res) => {
   try {
-    if (!estado.pasta || !estado.projetoId) {
-      return res.status(400).json({ erro: "Nenhum projeto aberto" });
-    }
-
-    const { mensagem } = req.body || {};
+    const { projetoId, mensagem } = req.body || {};
+    
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
     if (!mensagem) return res.status(400).json({ erro: "mensagem é obrigatória" });
 
-    const arvore = await listar_arvore(estado.pasta);
-    const resultado = await gerarMudancaInteligente(mensagem, estado.projetoId, estado.pasta, arvore);
+    const projeto = buscarProjetoPorId(projetoId);
+    if (!projeto || !projeto.caminho_local) {
+      return res.status(400).json({ erro: "Projeto não encontrado ou sem caminho local" });
+    }
+
+    const arvore = await listar_arvore(projeto.caminho_local);
+    const resultado = await gerarMudancaInteligente(mensagem, projetoId, projeto.caminho_local, arvore);
 
     if (resultado.mudancas && resultado.mudancas.length > 0) {
       for (const mudanca of resultado.mudancas) {
-        const arquivoPath = path.join(estado.pasta, mudanca.arquivo);
+        const arquivoPath = path.join(projeto.caminho_local, mudanca.arquivo);
         let original = "";
 
         try {
@@ -281,7 +273,7 @@ app.post("/chat/inteligente", async (req, res) => {
         const analise = await analisarDiferencas(original, mudanca.conteudo_novo);
 
         criarMudancaPendente(
-          estado.projetoId,
+          projetoId,
           mudanca.arquivo,
           original,
           mudanca.conteudo_novo,
@@ -290,10 +282,10 @@ app.post("/chat/inteligente", async (req, res) => {
         );
       }
 
-      const resposta = `Analisei sua solicita��ão e preparei ${resultado.mudancas.length} alteração(ões). Revise as mudanças pendentes e aprove para aplicar.`;
+      const resposta = `Analisei sua solicitação e preparei ${resultado.mudancas.length} alteração(ões). Revise as mudanças pendentes e aprove para aplicar.`;
 
-      salvarConversa(estado.projetoId, mensagem, resposta, JSON.stringify(resultado.analise));
-      registrarHistorico(estado.projetoId, "mudancas_propostas", `${resultado.mudancas.length} alterações propostas`);
+      salvarConversa(projetoId, mensagem, resposta, JSON.stringify(resultado.analise));
+      registrarHistorico(projetoId, "mudancas_propostas", `${resultado.mudancas.length} alterações propostas`);
 
       res.json({
         resposta,
@@ -303,7 +295,7 @@ app.post("/chat/inteligente", async (req, res) => {
       });
     } else {
       const resposta = await chat_simples(mensagem, "Repositório local aberto");
-      salvarConversa(estado.projetoId, mensagem, resposta);
+      salvarConversa(projetoId, mensagem, resposta);
       res.json({ resposta, mudancas: 0 });
     }
   } catch (e) {
@@ -327,11 +319,12 @@ app.post("/chat/gerar-titulo", async (req, res) => {
   }
 });
 
-app.get("/mudancas/pendentes", async (_req, res) => {
+app.get("/mudancas/pendentes", async (req, res) => {
   try {
-    if (!estado.projetoId) return res.status(400).json({ erro: "Nenhum projeto aberto" });
+    const projetoId = req.query.projetoId ? parseInt(req.query.projetoId) : null;
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
 
-    const mudancas = buscarMudancasPendentes(estado.projetoId);
+    const mudancas = buscarMudancasPendentes(projetoId);
     res.json({ mudancas });
   } catch (e) {
     res.status(500).json({ erro: String(e?.message || e) });
@@ -340,19 +333,22 @@ app.get("/mudancas/pendentes", async (_req, res) => {
 
 app.post("/mudancas/aprovar", async (req, res) => {
   try {
-    if (!estado.pasta || !estado.projetoId) {
-      return res.status(400).json({ erro: "Nenhum projeto aberto" });
-    }
-
-    const { mudancaId } = req.body || {};
+    const { projetoId, mudancaId } = req.body || {};
+    
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
     if (!mudancaId) return res.status(400).json({ erro: "mudancaId é obrigatório" });
 
-    const mudancas = buscarMudancasPendentes(estado.projetoId);
+    const projeto = buscarProjetoPorId(projetoId);
+    if (!projeto || !projeto.caminho_local) {
+      return res.status(400).json({ erro: "Projeto não encontrado ou sem caminho local" });
+    }
+
+    const mudancas = buscarMudancasPendentes(projetoId);
     const mudanca = mudancas.find(m => m.id === mudancaId);
 
     if (!mudanca) return res.status(404).json({ erro: "Mudança não encontrada" });
 
-    const arquivoPath = path.join(estado.pasta, mudanca.arquivo);
+    const arquivoPath = path.join(projeto.caminho_local, mudanca.arquivo);
     
     let conteudoOriginal = "";
     try {
@@ -363,7 +359,7 @@ app.post("/mudancas/aprovar", async (req, res) => {
     
     if (conteudoOriginal) {
       salvarVersaoArquivo(
-        estado.projetoId, 
+        projetoId, 
         mudanca.arquivo, 
         conteudoOriginal, 
         `Versão antes da mudança: ${mudanca.descricao || 'alteração'}`,
@@ -383,7 +379,7 @@ app.post("/mudancas/aprovar", async (req, res) => {
       diff: mudanca.diff
     });
     
-    registrarHistorico(estado.projetoId, "mudanca_aprovada", `Arquivo ${mudanca.arquivo} alterado`, dadosMudanca);
+    registrarHistorico(projetoId, "mudanca_aprovada", `Arquivo ${mudanca.arquivo} alterado`, dadosMudanca);
 
     res.json({ ok: true, arquivo: mudanca.arquivo });
   } catch (e) {
@@ -393,13 +389,13 @@ app.post("/mudancas/aprovar", async (req, res) => {
 
 app.post("/mudancas/rejeitar", async (req, res) => {
   try {
-    if (!estado.projetoId) return res.status(400).json({ erro: "Nenhum projeto aberto" });
-
-    const { mudancaId } = req.body || {};
+    const { projetoId, mudancaId } = req.body || {};
+    
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
     if (!mudancaId) return res.status(400).json({ erro: "mudancaId é obrigatório" });
 
     rejeitarMudanca(mudancaId);
-    registrarHistorico(estado.projetoId, "mudanca_rejeitada", "Mudança rejeitada pelo usuário");
+    registrarHistorico(projetoId, "mudanca_rejeitada", "Mudança rejeitada pelo usuário");
 
     res.json({ ok: true });
   } catch (e) {
@@ -416,20 +412,24 @@ app.get("/projetos", async (_req, res) => {
   }
 });
 
-app.get("/historico", async (_req, res) => {
+app.get("/historico", async (req, res) => {
   try {
-    if (!estado.projetoId) return res.status(400).json({ erro: "Nenhum projeto aberto" });
-    const historico = buscarHistorico(estado.projetoId, 50);
+    const projetoId = req.query.projetoId ? parseInt(req.query.projetoId) : null;
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
+    
+    const historico = buscarHistorico(projetoId, 50);
     res.json({ historico });
   } catch (e) {
     res.status(500).json({ erro: String(e?.message || e) });
   }
 });
 
-app.get("/conversas", async (_req, res) => {
+app.get("/conversas", async (req, res) => {
   try {
-    if (!estado.projetoId) return res.status(400).json({ erro: "Nenhum projeto aberto" });
-    const conversas = buscarConversas(estado.projetoId, 50);
+    const projetoId = req.query.projetoId ? parseInt(req.query.projetoId) : null;
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
+    
+    const conversas = buscarConversas(projetoId, 50);
     res.json({ conversas });
   } catch (e) {
     res.status(500).json({ erro: String(e?.message || e) });
@@ -438,7 +438,7 @@ app.get("/conversas", async (_req, res) => {
 
 app.post("/vision/analisar", async (req, res) => {
   try {
-    const { imagem, prompt } = req.body || {};
+    const { projetoId, imagem, prompt } = req.body || {};
     if (!imagem) return res.status(400).json({ erro: "Imagem é obrigatória" });
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -468,9 +468,9 @@ app.post("/vision/analisar", async (req, res) => {
         if (!abortado) {
           res.write(`data: ${JSON.stringify({ tipo: 'completo', resultado: textoFinal })}\n\n`);
           
-          if (estado.projetoId) {
+          if (projetoId) {
             salvarConversa(
-              estado.projetoId,
+              projetoId,
               `[IMAGEM] ${prompt || 'Análise de imagem'}`,
               textoFinal,
               JSON.stringify({ tipo: 'visao', modelo: process.env.VISION_MODEL || 'llava:7b' })
@@ -525,14 +525,23 @@ process.on("SIGTERM", graceful);
 
 app.post("/chat/stream", async (req, res) => {
   try {
-    if (!estado.pasta || !estado.projetoId) {
-      return res.status(400).json({ erro: "Nenhum projeto aberto" });
-    }
-
-    const { mensagem } = req.body || {};
+    const { projetoId, mensagem } = req.body || {};
+    
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
     if (!mensagem) return res.status(400).json({ erro: "mensagem é obrigatória" });
 
-    const arvore = await listar_arvore(estado.pasta);
+    const projeto = buscarProjetoPorId(projetoId);
+    if (!projeto || !projeto.caminho_local) {
+      return res.status(400).json({ erro: "Projeto não encontrado ou sem caminho local" });
+    }
+
+    const estado = {
+      pasta: projeto.caminho_local,
+      projetoId: projetoId,
+      url: projeto.repositorio_url
+    };
+
+    const arvore = await listar_arvore(projeto.caminho_local);
     await processarChatComStreaming(mensagem, estado, arvore, res);
   } catch (e) {
     if (!res.headersSent) {

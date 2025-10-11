@@ -109,6 +109,11 @@ export function buscarProjetoPorCaminho(caminho) {
   return stmt.get(caminho);
 }
 
+export function buscarProjetoPorId(projetoId) {
+  const stmt = db.prepare("SELECT * FROM projetos WHERE id = ?");
+  return stmt.get(projetoId);
+}
+
 export function atualizarUltimoAcesso(projetoId) {
   const stmt = db.prepare("UPDATE projetos SET ultimo_acesso = CURRENT_TIMESTAMP WHERE id = ?");
   stmt.run(projetoId);
