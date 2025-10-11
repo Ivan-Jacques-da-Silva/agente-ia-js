@@ -5,7 +5,19 @@ Develop an AI Agent system for code development with a professional interface. T
 
 ## Current Status: ✅ COMPLETED
 
-### Latest Updates - October 10, 2025
+### Latest Updates - October 11, 2025
+
+#### ✅ Agent Responsiveness Improvements
+- **Smart Intent Detection**: Agent now distinguishes between casual conversation and work requests
+  - Simple greetings ("Olá", "Oi", "Obrigado") trigger conversational responses without attempting code changes
+  - Work requests (even without explicit action verbs) properly route to the change-generation pipeline
+  - Exact matching with length guards prevents false positives on legitimate coding prompts
+- **Removed Blocking Overlay**: Eliminated the full-screen loading overlay that blocked UI interaction
+  - Users can now navigate and interact with the interface while agent processes requests
+  - Progress steps remain visible in the chat stream via SSE
+  - Better user experience with non-intrusive loading indicators
+
+### Updates - October 10, 2025
 
 #### ✅ Complete Chat Isolation System
 - **Chat Session Management**: Each chat now maintains completely independent:
@@ -104,7 +116,9 @@ Agent Server ─── Port 6060 ─── Core Logic
 - ✅ History visual comparison working
 - ✅ Code copy functionality operational
 - ✅ Real-time streaming active
+- ✅ Smart intent detection working
+- ✅ Non-blocking UI improvements applied
 
 ---
-Last Updated: October 10, 2025
+Last Updated: October 11, 2025
 Status: All major features complete, system operational and ready for use
