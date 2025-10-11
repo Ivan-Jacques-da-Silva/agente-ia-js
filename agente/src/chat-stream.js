@@ -80,41 +80,41 @@ export async function processarChatComStreaming(mensagem, estado, arvore, res) {
       return;
     }
     
-    enviarPensamento('Analisando solicitação do usuário', 'running', ['Interpretando intenção', 'Identificando arquivos relevantes']);
+    enviarPensamento('🔍 Analisando sua solicitação', 'running', ['Entendendo o que você precisa', 'Identificando arquivos relevantes']);
     await new Promise(resolve => setTimeout(resolve, 500));
-    enviarPensamento('Analisando solicitação do usuário', 'completed');
+    enviarPensamento('🔍 Analisando sua solicitação', 'completed');
     
-    enviarPensamento('Carregando contexto do projeto', 'running', [
-      `Total de arquivos: ${arvore.filter(a => a.tipo === 'file').length}`,
-      `Estrutura de pastas analisada`
+    enviarPensamento('📂 Carregando contexto do projeto', 'running', [
+      `📊 Total de arquivos: ${arvore.filter(a => a.tipo === 'file').length}`,
+      `✅ Estrutura compreendida`
     ]);
     await new Promise(resolve => setTimeout(resolve, 300));
-    enviarPensamento('Carregando contexto do projeto', 'completed');
+    enviarPensamento('📂 Carregando contexto do projeto', 'completed');
     
-    enviarPensamento('Identificando arquivos para modificar', 'running');
+    enviarPensamento('🎯 Identificando os melhores arquivos', 'running');
     
     const resultado = await gerarMudancaInteligente(mensagem, estado.projetoId, estado.pasta, arvore);
     
-    enviarPensamento('Identificando arquivos para modificar', 'completed');
+    enviarPensamento('🎯 Identificando os melhores arquivos', 'completed');
     
     if (resultado.analise && resultado.analise.passos) {
-      enviarPensamento('Executando análise detalhada', 'running', resultado.analise.passos);
+      enviarPensamento('💡 Executando análise detalhada', 'running', resultado.analise.passos);
       await new Promise(resolve => setTimeout(resolve, 400));
-      enviarPensamento('Executando análise detalhada', 'completed');
+      enviarPensamento('💡 Executando análise detalhada', 'completed');
     }
 
     if (resultado.mudancas && resultado.mudancas.length > 0) {
-      enviarPensamento(`Preparando ${resultado.mudancas.length} alteração(ões)`, 'running', 
-        resultado.mudancas.map(m => `Arquivo: ${m.arquivo}`)
+      enviarPensamento(`✨ Preparando ${resultado.mudancas.length} alteração(ões)`, 'running', 
+        resultado.mudancas.map(m => `📝 ${m.arquivo}`)
       );
       await new Promise(resolve => setTimeout(resolve, 300));
       
       const mudancasComId = [];
       for (const mudanca of resultado.mudancas) {
-        enviarPensamento(`Processando ${mudanca.arquivo}`, 'running', [
-          'Lendo conteúdo atual',
-          'Calculando diferenças',
-          'Gerando análise de impacto'
+        enviarPensamento(`⚙️ Processando ${mudanca.arquivo}`, 'running', [
+          '📖 Lendo código atual',
+          '🔄 Calculando diferenças',
+          '📊 Analisando impacto'
         ]);
         
         const arquivoPath = path.join(estado.pasta, mudanca.arquivo);
@@ -148,19 +148,19 @@ export async function processarChatComStreaming(mensagem, estado, arvore, res) {
           conteudo_novo: mudanca.conteudo_novo
         });
 
-        enviarPensamento(`Processando ${mudanca.arquivo}`, 'completed');
+        enviarPensamento(`⚙️ Processando ${mudanca.arquivo}`, 'completed');
       }
 
-      enviarPensamento(`Preparando ${resultado.mudancas.length} alteração(ões)`, 'completed');
+      enviarPensamento(`✨ Preparando ${resultado.mudancas.length} alteração(ões)`, 'completed');
       
-      enviarPensamento('Finalizando análise e preparando resposta', 'running');
+      enviarPensamento('🎉 Finalizando e preparando resposta', 'running');
 
-      const resposta = `Analisei sua solicitação e preparei ${resultado.mudancas.length} alteração(ões). Revise as mudanças abaixo:`;
+      const resposta = `Pronto! Analisei sua solicitação e preparei ${resultado.mudancas.length} alteração(ões) para você. Revise as mudanças abaixo e aprove quando estiver satisfeito:`;
 
       salvarConversa(estado.projetoId, mensagem, resposta, JSON.stringify(resultado.analise));
       registrarHistorico(estado.projetoId, "mudancas_propostas", `${resultado.mudancas.length} alterações propostas`);
 
-      enviarPensamento('Finalizando análise e preparando resposta', 'completed');
+      enviarPensamento('🎉 Finalizando e preparando resposta', 'completed');
 
       res.write(`data: ${JSON.stringify({
         tipo: 'completo',
@@ -171,10 +171,10 @@ export async function processarChatComStreaming(mensagem, estado, arvore, res) {
       })}\n\n`);
       res.end();
     } else {
-      enviarPensamento('Processando resposta conversacional', 'running');
+      enviarPensamento('💬 Preparando resposta para você', 'running');
       const resposta = await chat_simples(mensagem, "Repositório local aberto");
       salvarConversa(estado.projetoId, mensagem, resposta);
-      enviarPensamento('Processando resposta conversacional', 'completed');
+      enviarPensamento('💬 Preparando resposta para você', 'completed');
       
       res.write(`data: ${JSON.stringify({
         tipo: 'completo',
