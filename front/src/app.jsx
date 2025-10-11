@@ -6,6 +6,7 @@ import "./app.css";
 import { AttachmentMenu } from "./AttachmentMenu";
 import { MudancaCard } from "./MudancaCard";
 import { HistoricoItem } from "./HistoricoItem";
+import { ThinkingProcess } from "./ThinkingProcess";
 import { enviarChatComStreaming, criarDiffVisualizer } from "./chat-utils";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
@@ -573,11 +574,11 @@ export default function App() {
     }
 
     const userMessage = createMessage("user", msg);
-    const etapasMsg = createMessage("agent", "", { pending: true });
-    etapasMsg.isSteps = true;
-    etapasMsg.steps = [];
+    const thinkingMsg = createMessage("agent", "", { pending: true });
+    thinkingMsg.isThinking = true;
+    thinkingMsg.thinkingSteps = [];
 
-    setChatMessages((prev) => [...prev, userMessage, etapasMsg]);
+    setChatMessages((prev) => [...prev, userMessage, thinkingMsg]);
     setEntradaChat("");
 
     await enviarChatComStreaming(
@@ -587,8 +588,8 @@ export default function App() {
       (etapa) => {
         setChatMessages((prev) => 
           prev.map((m) => 
-            m.id === etapasMsg.id
-              ? { ...m, steps: [...(m.steps || []), etapa] }
+            m.id === thinkingMsg.id
+              ? { ...m, thinkingSteps: [...(m.thinkingSteps || []), { text: etapa, status: 'completed' }] }
               : m
           )
         );
@@ -598,7 +599,7 @@ export default function App() {
         const mudancas = resultado.mudancas || [];
 
         setChatMessages((prev) => {
-          const filtered = prev.filter(m => m.id !== etapasMsg.id);
+          const filtered = prev.filter(m => m.id !== thinkingMsg.id);
           const respostaMsg = createMessage("agent", resposta);
           
           let novasMensagens = [...filtered, respostaMsg];
@@ -628,11 +629,28 @@ export default function App() {
       (erro) => {
         setChatMessages((prev) =>
           prev.map((item) =>
-            item.id === etapasMsg.id
-              ? { ...item, text: `Erro: ${erro}`, pending: false, isSteps: false, steps: [] }
+            item.id === thinkingMsg.id
+              ? { ...item, text: `Erro: ${erro}`, pending: false, isThinking: false, thinkingSteps: [] }
               : item
           )
         );
+      },
+      (pensamento) => {
+        setChatMessages((prev) => {
+          return prev.map((m) => {
+            if (m.id === thinkingMsg.id) {
+              const existingIndex = m.thinkingSteps.findIndex(s => s.text === pensamento.text);
+              if (existingIndex >= 0) {
+                const updated = [...m.thinkingSteps];
+                updated[existingIndex] = pensamento;
+                return { ...m, thinkingSteps: updated };
+              } else {
+                return { ...m, thinkingSteps: [...(m.thinkingSteps || []), pensamento] };
+              }
+            }
+            return m;
+          });
+        });
       }
     );
   }
@@ -1827,6 +1845,18 @@ export default function App() {
                             onAprovar={aprovarMudanca}
                             onRejeitar={rejeitarMudanca}
                             loading={loading}
+                          />
+                        </div>
+                      );
+                    }
+
+                    if (msg.isThinking && msg.thinkingSteps) {
+                      return (
+                        <div key={msg.id} className="chat-message chat-message--thinking">
+                          <ThinkingProcess 
+                            steps={msg.thinkingSteps} 
+                            isActive={msg.pending}
+                            title="Working"
                           />
                         </div>
                       );

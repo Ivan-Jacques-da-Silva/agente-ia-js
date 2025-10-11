@@ -4,7 +4,8 @@ export async function enviarChatComStreaming(
   projetoId,
   onEtapa,
   onCompleto,
-  onErro
+  onErro,
+  onPensamento
 ) {
   try {
     const response = await fetch(`${agenteUrl}/chat/stream`, {
@@ -36,6 +37,10 @@ export async function enviarChatComStreaming(
             
             if (data.tipo === 'etapa') {
               onEtapa(data.conteudo);
+            } else if (data.tipo === 'pensamento') {
+              if (onPensamento) {
+                onPensamento(data.conteudo);
+              }
             } else if (data.tipo === 'completo') {
               onCompleto(data);
             } else if (data.tipo === 'erro') {

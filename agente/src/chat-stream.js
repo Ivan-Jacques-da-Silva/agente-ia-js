@@ -51,11 +51,25 @@ export async function processarChatComStreaming(mensagem, estado, arvore, res) {
     }
   };
 
+  const enviarPensamento = (texto, status = 'running', detalhes = []) => {
+    if (!abortado) {
+      res.write(`data: ${JSON.stringify({ 
+        tipo: 'pensamento', 
+        conteudo: { text: texto, status, details: detalhes }
+      })}\n\n`);
+    }
+  };
+
   try {
     if (ehMensagemDeConversa(mensagem)) {
-      enviarEtapa('💬 Respondendo sua mensagem...');
+      enviarPensamento('Identificando tipo de mensagem', 'running');
+      enviarPensamento('Identificando tipo de mensagem', 'completed');
+      enviarPensamento('Respondendo sua mensagem', 'running');
+      
       const resposta = await chat_simples(mensagem, "Conversa com o usuário");
       salvarConversa(estado.projetoId, mensagem, resposta);
+      
+      enviarPensamento('Respondendo sua mensagem', 'completed');
       
       res.write(`data: ${JSON.stringify({
         tipo: 'completo',
@@ -66,23 +80,43 @@ export async function processarChatComStreaming(mensagem, estado, arvore, res) {
       return;
     }
     
-    enviarEtapa('🔍 Analisando solicitação...');
+    enviarPensamento('Analisando solicitação do usuário', 'running', ['Interpretando intenção', 'Identificando arquivos relevantes']);
+    await new Promise(resolve => setTimeout(resolve, 500));
+    enviarPensamento('Analisando solicitação do usuário', 'completed');
     
-    enviarEtapa(`📁 Carregados ${arvore.filter(a => a.tipo === 'file').length} arquivos do projeto`);
+    enviarPensamento('Carregando contexto do projeto', 'running', [
+      `Total de arquivos: ${arvore.filter(a => a.tipo === 'file').length}`,
+      `Estrutura de pastas analisada`
+    ]);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    enviarPensamento('Carregando contexto do projeto', 'completed');
+    
+    enviarPensamento('Identificando arquivos para modificar', 'running');
     
     const resultado = await gerarMudancaInteligente(mensagem, estado.projetoId, estado.pasta, arvore);
     
+    enviarPensamento('Identificando arquivos para modificar', 'completed');
+    
     if (resultado.analise && resultado.analise.passos) {
-      for (const passo of resultado.analise.passos) {
-        enviarEtapa(`✓ ${passo}`);
-      }
+      enviarPensamento('Executando análise detalhada', 'running', resultado.analise.passos);
+      await new Promise(resolve => setTimeout(resolve, 400));
+      enviarPensamento('Executando análise detalhada', 'completed');
     }
 
     if (resultado.mudancas && resultado.mudancas.length > 0) {
-      enviarEtapa(`🔧 Gerando ${resultado.mudancas.length} alteração(ões)...`);
+      enviarPensamento(`Preparando ${resultado.mudancas.length} alteração(ões)`, 'running', 
+        resultado.mudancas.map(m => `Arquivo: ${m.arquivo}`)
+      );
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       const mudancasComId = [];
       for (const mudanca of resultado.mudancas) {
+        enviarPensamento(`Processando ${mudanca.arquivo}`, 'running', [
+          'Lendo conteúdo atual',
+          'Calculando diferenças',
+          'Gerando análise de impacto'
+        ]);
+        
         const arquivoPath = path.join(estado.pasta, mudanca.arquivo);
         let original = "";
 
@@ -114,15 +148,19 @@ export async function processarChatComStreaming(mensagem, estado, arvore, res) {
           conteudo_novo: mudanca.conteudo_novo
         });
 
-        enviarEtapa(`✏️ Preparada alteração em ${mudanca.arquivo}`);
+        enviarPensamento(`Processando ${mudanca.arquivo}`, 'completed');
       }
+
+      enviarPensamento(`Preparando ${resultado.mudancas.length} alteração(ões)`, 'completed');
+      
+      enviarPensamento('Finalizando análise e preparando resposta', 'running');
 
       const resposta = `Analisei sua solicitação e preparei ${resultado.mudancas.length} alteração(ões). Revise as mudanças abaixo:`;
 
       salvarConversa(estado.projetoId, mensagem, resposta, JSON.stringify(resultado.analise));
       registrarHistorico(estado.projetoId, "mudancas_propostas", `${resultado.mudancas.length} alterações propostas`);
 
-      enviarEtapa('✅ Análise concluída!');
+      enviarPensamento('Finalizando análise e preparando resposta', 'completed');
 
       res.write(`data: ${JSON.stringify({
         tipo: 'completo',
@@ -133,9 +171,10 @@ export async function processarChatComStreaming(mensagem, estado, arvore, res) {
       })}\n\n`);
       res.end();
     } else {
-      enviarEtapa('💬 Processando resposta...');
+      enviarPensamento('Processando resposta conversacional', 'running');
       const resposta = await chat_simples(mensagem, "Repositório local aberto");
       salvarConversa(estado.projetoId, mensagem, resposta);
+      enviarPensamento('Processando resposta conversacional', 'completed');
       
       res.write(`data: ${JSON.stringify({
         tipo: 'completo',

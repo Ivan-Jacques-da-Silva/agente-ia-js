@@ -58,6 +58,23 @@ IMPORTANTE:
   };
 }
 
+function detectarTecnologias(arvore) {
+  const tecnologias = new Set();
+  const arquivos = arvore.filter(a => a.tipo === 'file').map(a => a.path);
+  
+  if (arquivos.some(f => f.includes('package.json'))) tecnologias.add('Node.js');
+  if (arquivos.some(f => f.endsWith('.jsx') || f.endsWith('.tsx'))) tecnologias.add('React');
+  if (arquivos.some(f => f.includes('vite.config'))) tecnologias.add('Vite');
+  if (arquivos.some(f => f.endsWith('.py'))) tecnologias.add('Python');
+  if (arquivos.some(f => f.endsWith('.java'))) tecnologias.add('Java');
+  if (arquivos.some(f => f.endsWith('.go'))) tecnologias.add('Go');
+  if (arquivos.some(f => f.includes('Cargo.toml'))) tecnologias.add('Rust');
+  if (arquivos.some(f => f.includes('angular.json'))) tecnologias.add('Angular');
+  if (arquivos.some(f => f.includes('next.config'))) tecnologias.add('Next.js');
+  
+  return Array.from(tecnologias);
+}
+
 function normalizarTokens(texto) {
   return String(texto || "")
     .toLowerCase()
@@ -106,23 +123,45 @@ function heuristicaArquivos(arvore, mensagem) {
 
 export async function gerarMudancaInteligente(mensagem, projetoId, pastaProjeto, arvore) {
   const passos = [];
-  passos.push(`Arquivos no projeto (amostra de ${Math.min(300, arvore.filter(a=>a.tipo==='file').length)} arquivos)`);
+  
+  passos.push(`Analisando estrutura do projeto`);
+  passos.push(`Total de arquivos identificados: ${arvore.filter(a=>a.tipo==='file').length}`);
+  
+  const tecnologias = detectarTecnologias(arvore);
+  if (tecnologias.length > 0) {
+    passos.push(`Tecnologias detectadas: ${tecnologias.join(', ')}`);
+  }
+  
+  passos.push(`Interpretando intenção da solicitação`);
   const analise = await analisarIntencao(mensagem, projetoId, arvore);
-  passos.push("Intenção analisada pelo LLM");
-
+  
+  passos.push(`Tipo de mudança identificada: ${analise.tipo_mudanca || 'edição'}`);
+  passos.push(`Complexidade estimada: ${analise.complexidade || 'média'}`);
+  
+  if (analise.riscos && analise.riscos.length > 0) {
+    passos.push(`Riscos identificados: ${analise.riscos.slice(0, 2).join(', ')}`);
+  }
+  
+  passos.push(`Buscando arquivos relevantes no contexto`);
+  
   const arquivosContexto = [];
   let candidatos = Array.isArray(analise.arquivos_alvo) ? analise.arquivos_alvo.slice(0,5) : [];
   const conjunto = new Set(arvore.filter(a => a.tipo === 'file').map(a => a.path));
   candidatos = candidatos.filter(c => conjunto.has(c));
+  
   if (candidatos.length === 0) {
+    passos.push('Aplicando heurística para encontrar arquivos candidatos');
     candidatos = heuristicaArquivos(arvore, mensagem);
   }
+  
   if (candidatos.length) {
-    passos.push(`Arquivos candidatos: ${candidatos.slice(0,3).join(', ')}`);
+    passos.push(`Arquivos selecionados para análise: ${candidatos.slice(0,3).join(', ')}`);
   } else {
-    passos.push('Nenhum arquivo candidato encontrado');
+    passos.push('Nenhum arquivo candidato encontrado - análise baseada em contexto geral');
   }
 
+  passos.push(`Carregando conteúdo dos arquivos selecionados`);
+  
   for (const arquivoAlvo of candidatos) {
     try {
       const caminhoCompleto = path.join(pastaProjeto, arquivoAlvo);
@@ -130,13 +169,19 @@ export async function gerarMudancaInteligente(mensagem, projetoId, pastaProjeto,
 
       if (existe) {
         const conteudo = await fs.promises.readFile(caminhoCompleto, "utf-8");
+        const linhas = conteudo.split('\n').length;
+        passos.push(`Arquivo ${arquivoAlvo} carregado (${linhas} linhas)`);
         arquivosContexto.push({ caminho: arquivoAlvo, conteudo: conteudo.slice(0, 10000) });
         await salvarContextoArquivo(projetoId, arquivoAlvo, conteudo);
       }
     } catch (e) {
+      passos.push(`Erro ao carregar ${arquivoAlvo}: ${e.message}`);
       console.error(`Erro ao ler ${arquivoAlvo}:`, e);
     }
   }
+  
+  passos.push(`Preparando análise para geração de código`);
+  passos.push(`Utilizando contexto de ${arquivosContexto.length} arquivo(s)`);
 
   const listaArquivos = arvore.filter(a => a.tipo === 'file').slice(0, 500).map(a => a.path).join('\n');
 
