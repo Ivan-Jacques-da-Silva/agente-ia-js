@@ -3,6 +3,20 @@ import { buscarContextoProjeto, salvarContextoArquivo } from "./database.js";
 import fs from "node:fs";
 import path from "node:path";
 
+function limparJSON(jsonString) {
+  return jsonString
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, (char) => {
+      const replacements = {
+        '\n': '\\n',
+        '\r': '\\r',
+        '\t': '\\t',
+        '\b': '\\b',
+        '\f': '\\f'
+      };
+      return replacements[char] || '';
+    });
+}
+
 export async function analisarIntencao(mensagem, projetoId, arvore) {
   const contexto = await buscarContextoProjeto(projetoId, 20);
   const todosArquivos = arvore.filter(a => a.tipo === "file").map(a => a.path);
@@ -42,7 +56,8 @@ IMPORTANTE:
     const fim = resposta.lastIndexOf("}");
 
     if (inicio >= 0 && fim > inicio) {
-      const json = JSON.parse(resposta.slice(inicio, fim + 1));
+      const jsonString = limparJSON(resposta.slice(inicio, fim + 1));
+      const json = JSON.parse(jsonString);
       return json;
     }
   } catch (e) {
@@ -227,7 +242,8 @@ IMPORTANTE:
     const fim = resposta.lastIndexOf("}");
 
     if (inicio >= 0 && fim > inicio) {
-      const json = JSON.parse(resposta.slice(inicio, fim + 1));
+      const jsonString = limparJSON(resposta.slice(inicio, fim + 1));
+      const json = JSON.parse(jsonString);
       return { ...json, analise: { ...analise, passos } };
     }
   } catch (e) {
