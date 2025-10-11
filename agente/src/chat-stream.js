@@ -4,6 +4,40 @@ import { chat_simples } from "./llm.js";
 import path from "node:path";
 import fs from "node:fs";
 
+function ehMensagemDeConversa(mensagem) {
+  const msgLower = mensagem.toLowerCase().trim();
+  
+  if (msgLower.length > 100) {
+    return false;
+  }
+  
+  const saudacoesExatas = ['olá', 'oi', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'hello', 'hi', 'hey'];
+  const agradecimentosExatos = ['obrigado', 'obrigada', 'valeu', 'thanks', 'thank you'];
+  const perguntasSimples = ['como você está', 'tudo bem', 'como vai', 'quem é você', 'o que você faz'];
+  
+  for (const saudacao of saudacoesExatas) {
+    if (msgLower === saudacao || msgLower === saudacao + '!' || msgLower === saudacao + '?') {
+      return true;
+    }
+  }
+  
+  for (const agradecimento of agradecimentosExatos) {
+    if (msgLower === agradecimento || msgLower === agradecimento + '!' || msgLower === agradecimento + '.') {
+      return true;
+    }
+  }
+  
+  if (msgLower.length < 30) {
+    for (const pergunta of perguntasSimples) {
+      if (msgLower === pergunta || msgLower === pergunta + '?' || msgLower.includes(pergunta)) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
+}
+
 export async function processarChatComStreaming(mensagem, estado, arvore, res) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -18,6 +52,20 @@ export async function processarChatComStreaming(mensagem, estado, arvore, res) {
   };
 
   try {
+    if (ehMensagemDeConversa(mensagem)) {
+      enviarEtapa('💬 Respondendo sua mensagem...');
+      const resposta = await chat_simples(mensagem, "Conversa com o usuário");
+      salvarConversa(estado.projetoId, mensagem, resposta);
+      
+      res.write(`data: ${JSON.stringify({
+        tipo: 'completo',
+        resposta,
+        mudancas: []
+      })}\n\n`);
+      res.end();
+      return;
+    }
+    
     enviarEtapa('🔍 Analisando solicitação...');
     
     enviarEtapa(`📁 Carregados ${arvore.filter(a => a.tipo === 'file').length} arquivos do projeto`);

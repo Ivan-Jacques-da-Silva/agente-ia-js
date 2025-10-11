@@ -579,8 +579,6 @@ export default function App() {
 
     setChatMessages((prev) => [...prev, userMessage, etapasMsg]);
     setEntradaChat("");
-    setLoading(true);
-    setLoadingMessage("Processando...");
 
     await enviarChatComStreaming(
       msg,
@@ -626,9 +624,6 @@ export default function App() {
         if (activeSession && activeSession.messages.filter(m => m.role === 'user').length === 1) {
           setTimeout(() => gerarTituloAutomatico(activeChatId), 500);
         }
-
-        setLoading(false);
-        setLoadingMessage("");
       },
       (erro) => {
         setChatMessages((prev) =>
@@ -638,8 +633,6 @@ export default function App() {
               : item
           )
         );
-        setLoading(false);
-        setLoadingMessage("");
       }
     );
   }
@@ -2156,14 +2149,6 @@ export default function App() {
         </div>
       )}
 
-      {loading && (
-        <div className="loading-overlay" role="status" aria-live="polite">
-          <div className="loading-indicator">
-            <span className="loading-spinner" />
-            <p className="loading-text">{loadingMessage || "Processando..."}</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
