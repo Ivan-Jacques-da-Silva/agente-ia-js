@@ -1,7 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 export function MudancaCard({ mudanca, onVisualizar, onAprovar, onRejeitar, loading }) {
-  const { arquivo, descricao, analise } = mudanca;
+  const { arquivo, descricao, analise, conteudo_novo } = mudanca;
+  const [copiado, setCopiado] = useState(false);
+
+  const copiarCodigo = async () => {
+    if (!conteudo_novo) return;
+    
+    try {
+      await navigator.clipboard.writeText(conteudo_novo);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch (e) {
+      console.error('Erro ao copiar:', e);
+    }
+  };
 
   return (
     <div className="mudanca-card-chat">
@@ -28,6 +41,16 @@ export function MudancaCard({ mudanca, onVisualizar, onAprovar, onRejeitar, load
           onClick={() => onVisualizar(mudanca)}
         >
           <i className="fas fa-code"></i> Ver Código
+        </button>
+        <button
+          type="button"
+          className="button button-tertiary button-sm"
+          onClick={copiarCodigo}
+          disabled={!conteudo_novo}
+          title="Copiar código completo atualizado"
+        >
+          <i className={`fas fa-${copiado ? 'check' : 'copy'}`}></i> 
+          {copiado ? 'Copiado!' : 'Copiar Código'}
         </button>
         <button
           type="button"
