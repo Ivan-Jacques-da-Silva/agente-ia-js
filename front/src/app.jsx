@@ -287,6 +287,8 @@ export default function App() {
   const [diffViewerAberto, setDiffViewerAberto] = useState(false);
   const [diffAtual, setDiffAtual] = useState(null);
   const [indiceMudancaAtual, setIndiceMudancaAtual] = useState(0);
+  const [executarProvisionamento, setExecutarProvisionamento] = useState(false);
+  const [progressoProvisionamento, setProgressoProvisionamento] = useState(null);
 
   const chatResizeDataRef = useRef(null);
   const chatListRef = useRef(null);
@@ -653,6 +655,106 @@ export default function App() {
         });
       }
     );
+  }
+
+  async function executarProvisionamentoCompleto(texto) {
+    if (!requireAgentReady()) return;
+    if (!projetoAtual?.id) {
+      setErro("Nenhum projeto aberto");
+      return;
+    }
+
+    const userMessage = createMessage("user", texto);
+    setChatMessages((prev) => [...prev, userMessage]);
+    setEntradaChat("");
+
+    const etapas = [
+      { nome: "analisar", titulo: "Analisando repositório", status: "pendente" },
+      { nome: "detectar", titulo: "Detectando stack", status: "pendente" },
+      { nome: "preparar", titulo: "Preparando ambiente", status: "pendente" },
+      { nome: "compose", titulo: "Gerando orquestração", status: "pendente" },
+      { nome: "subir", titulo: "Subindo serviços", status: "pendente" },
+      { nome: "simular", titulo: "Simulando interface", status: "pendente" },
+      { nome: "relatorio", titulo: "Gerando relatório", status: "pendente" }
+    ];
+
+    setProgressoProvisionamento({ etapas, status: "executando" });
+
+    const requestBody = JSON.stringify({
+      projetoId: projetoAtual.id,
+      opcoes: {}
+    });
+
+    try {
+      const response = await fetch(buildUrl(agenteUrl, "/provisionar/executar"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: requestBody
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.tipo === 'finalizado') {
+                const resultado = data.resultado;
+                
+                setProgressoProvisionamento(prev => ({
+                  ...prev,
+                  status: resultado.sucesso ? "concluido" : "falhou",
+                  resultado
+                }));
+
+                const respostaMsg = createMessage(
+                  "agent",
+                  resultado.sucesso
+                    ? `✅ Provisionamento concluído!\n\nRelatório: ${resultado.dados?.relatorio?.caminho || 'gerado'}\nTempo total: ${resultado.tempoTotal}s`
+                    : `❌ Provisionamento falhou: ${resultado.erro || 'erro desconhecido'}`
+                );
+                setChatMessages(prev => [...prev, respostaMsg]);
+                
+              } else if (data.etapa) {
+                setProgressoProvisionamento(prev => {
+                  const novasEtapas = prev.etapas.map(et => {
+                    if (et.nome === data.etapa) {
+                      return {
+                        ...et,
+                        status: data.status,
+                        detalhes: data.detalhes
+                      };
+                    }
+                    return et;
+                  });
+                  return { ...prev, etapas: novasEtapas };
+                });
+              }
+            } catch (err) {
+              console.error("Erro ao processar evento SSE:", err);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      setProgressoProvisionamento(prev => ({
+        ...prev,
+        status: "falhou"
+      }));
+      const errorMsg = createMessage("agent", `❌ Erro na conexão: ${err.message}`);
+      setChatMessages(prev => [...prev, errorMsg]);
+    }
   }
 
   useEffect(() => {
@@ -1940,7 +2042,11 @@ export default function App() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      enviar_chat(entradaChat);
+                      if (executarProvisionamento) {
+                        executarProvisionamentoCompleto(entradaChat);
+                      } else {
+                        enviar_chat(entradaChat);
+                      }
                     }
                   }}
                   spellCheck={false}
@@ -1948,17 +2054,77 @@ export default function App() {
                   autoCorrect="off"
                   autoCapitalize="off"
                 />
-                <button
-                  type="button"
-                  className="button button-tertiary"
-                  onClick={() => enviar_chat(entradaChat)}
-                  disabled={loading}
-                  title="Enviar"
-                  style={{ padding: '8px 12px' }}
-                >
-                  <i className="fas fa-paper-plane"></i>
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    <input
+                      type="checkbox"
+                      checked={executarProvisionamento}
+                      onChange={(e) => setExecutarProvisionamento(e.target.checked)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <span>🐳 Provisionar</span>
+                  </label>
+                  <button
+                    type="button"
+                    className="button button-tertiary"
+                    onClick={() => {
+                      if (executarProvisionamento) {
+                        executarProvisionamentoCompleto(entradaChat);
+                      } else {
+                        enviar_chat(entradaChat);
+                      }
+                    }}
+                    disabled={loading}
+                    title="Enviar"
+                    style={{ padding: '8px 12px' }}
+                  >
+                    <i className="fas fa-paper-plane"></i>
+                  </button>
+                </div>
               </div>
+              
+              {progressoProvisionamento && (
+                <div className="provisionamento-progresso" style={{ 
+                  padding: '12px', 
+                  background: 'var(--bg-secondary)', 
+                  borderRadius: '8px',
+                  marginTop: '12px'
+                }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600' }}>
+                    <i className="fas fa-cog fa-spin"></i> Provisionamento e Simulação
+                  </h4>
+                  {progressoProvisionamento.etapas.map((etapa, idx) => (
+                    <div key={idx} style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '8px', 
+                      padding: '6px 0',
+                      fontSize: '13px'
+                    }}>
+                      {etapa.status === 'pendente' && <i className="fas fa-circle" style={{ color: '#666', fontSize: '8px' }}></i>}
+                      {etapa.status === 'iniciando' && <i className="fas fa-spinner fa-spin" style={{ color: '#ffa500' }}></i>}
+                      {etapa.status === 'concluido' && <i className="fas fa-check-circle" style={{ color: '#4caf50' }}></i>}
+                      {etapa.status === 'falhou' && <i className="fas fa-times-circle" style={{ color: '#f44336' }}></i>}
+                      {etapa.status === 'pulado' && <i className="fas fa-minus-circle" style={{ color: '#999' }}></i>}
+                      <span style={{ 
+                        color: etapa.status === 'concluido' ? '#4caf50' : etapa.status === 'falhou' ? '#f44336' : 'inherit'
+                      }}>
+                        {etapa.titulo}
+                      </span>
+                    </div>
+                  ))}
+                  {progressoProvisionamento.status === 'concluido' && (
+                    <button
+                      type="button"
+                      className="button button-tertiary"
+                      onClick={() => setProgressoProvisionamento(null)}
+                      style={{ marginTop: '8px', fontSize: '12px' }}
+                    >
+                      <i className="fas fa-times"></i> Fechar
+                    </button>
+                  )}
+                </div>
+              )}
             </aside>
           </div>
         </div>
