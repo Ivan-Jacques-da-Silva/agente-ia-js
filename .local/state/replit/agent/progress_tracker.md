@@ -119,6 +119,40 @@ Agent Server ─── Port 6060 ─── Core Logic
 - ✅ Smart intent detection working
 - ✅ Non-blocking UI improvements applied
 
+## Latest Updates - October 12, 2025
+
+#### ✅ Metodologia de Provisionamento e Simulação
+- **Sistema Completo de Provisionamento**: Nova funcionalidade para preparar ambientes Docker automaticamente
+  - Checkbox "🐳 Provisionar" ao lado do botão enviar no chat
+  - Execução de 7 etapas automatizadas:
+    1. **Analisar repositório**: Detecta arquivos de configuração (package.json, docker-compose.yml, etc.)
+    2. **Detectar stack**: Identifica tecnologias (React, Node, PostgreSQL, etc.)
+    3. **Preparar ambiente**: Cria .env, pastas relatorios/ e videos/
+    4. **Gerar orquestração**: Cria docker-compose.yml (ou .local.yml se já existir)
+    5. **Subir serviços**: Executa `docker compose up -d` e faz health-check
+    6. **Simular interface**: Testa o frontend com Playwright e grava vídeo
+    7. **Gerar relatório**: Cria relatório JSON completo em relatorios/
+  
+- **Visualização de Progresso em Tempo Real**: 
+  - SSE (Server-Sent Events) para streaming do progresso
+  - Indicadores visuais para cada etapa (✓ concluído, ⊙ executando, ✗ falhou)
+  - Componente de progresso expandível no chat
+
+- **Módulos Backend Criados**:
+  - `agente/src/provisionar/analisar-repo.js` - Análise de repositório
+  - `agente/src/provisionar/detectar-stack.js` - Detecção de tecnologias
+  - `agente/src/provisionar/preparar-ambiente.js` - Preparação de ambiente
+  - `agente/src/provisionar/gerar-compose.js` - Geração de docker-compose.yml
+  - `agente/src/provisionar/subir-servicos.js` - Execução de Docker Compose
+  - `agente/src/provisionar/simular-interface.js` - Simulação E2E com Playwright
+  - `agente/src/provisionar/gerar-relatorio.js` - Geração de relatórios
+  - `agente/src/provisionar/orquestrador.js` - Orquestração completa
+
+- **Endpoint SSE**: `/provisionar/executar` para execução com streaming de progresso
+
+- **Templates Criados**:
+  - `templates/cenario-login.json` - Cenário de teste padrão para simulação
+
 ---
-Last Updated: October 11, 2025
-Status: All major features complete, system operational and ready for use
+Last Updated: October 12, 2025
+Status: All major features complete, sistema de provisionamento implementado

@@ -248,12 +248,47 @@ rm ~/.agente-ia/agente.db
   - Integração perfeita com o chat existente
 - **Comunicação Natural**: Todos os pensamentos são apresentados de forma clara e legível
 
+## ✅ Metodologia de Provisionamento e Simulação (Implementado - 12/10/2025)
+
+### Visão Geral
+Sistema completo de provisionamento automático de ambientes Docker com simulação E2E e geração de relatórios.
+
+### Como Usar
+1. Abra um projeto no agente
+2. No chat, marque o checkbox "🐳 Provisionar" ao lado do botão enviar
+3. Digite uma mensagem (opcional) e clique em enviar
+4. O sistema executará automaticamente as 7 etapas:
+   - 📋 Analisar repositório
+   - 🔍 Detectar stack
+   - 📁 Preparar ambiente
+   - 🐳 Gerar orquestração
+   - ▶️ Subir serviços
+   - 🎬 Simular interface (com vídeo)
+   - 📊 Gerar relatório
+
+### Funcionalidades
+- **Detecção Automática de Stack**: Identifica React, Vue, Angular, Next.js, Node, Python, Java, PostgreSQL, MySQL, MongoDB
+- **Geração de docker-compose.yml**: Cria automaticamente orquestração completa
+- **Simulação E2E com Playwright**: Grava vídeo da navegação no frontend
+- **Relatórios JSON**: Gera relatórios detalhados em `relatorios/`
+- **Vídeos de Simulação**: Salva vídeos em `videos/`
+- **Streaming de Progresso**: Visualização em tempo real das etapas
+
+### Arquivos Gerados
+- `.env` - Variáveis de ambiente
+- `docker-compose.yml` (ou `docker-compose.local.yml` se já existir)
+- `relatorios/relatorio-{timestamp}.json` - Relatório completo
+- `videos/*.webm` - Vídeos da simulação
+- `videos/*.png` - Screenshots
+
+### Requisitos
+- Docker instalado
+- Playwright (já incluído nas dependências)
+- Projeto com stack detectável (package.json, requirements.txt, etc.)
+
 ## Próximas Melhorias Planejadas
 
-Com base nas instruções recebidas, o sistema pode ser aprimorado para ser mais autônomo:
-
 - [ ] Sistema de planejamento (quebrar objetivos em passos)
-- [ ] Executor de ações com sandbox
 - [ ] Validador/Verificador automático (testes, lint)
 - [ ] Guardrails de segurança
 - [ ] Observabilidade avançada (traces, snapshots)

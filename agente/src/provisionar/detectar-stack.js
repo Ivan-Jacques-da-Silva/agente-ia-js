@@ -52,8 +52,8 @@ export async function detectarStack(diagnostico, pasta) {
   const portaFront = 5173;
   const portaDb = bancoDados === "postgresql" ? 5432 : bancoDados === "mysql" ? 3306 : 27017;
   
-  // URL do frontend para simulação
-  const urlFront = `http://localhost:${portaFront}`;
+  // URL do frontend para simulação (apenas se houver frontend detectado)
+  const urlFront = (tipoFront || pastaFront) ? `http://localhost:${portaFront}` : null;
   
   return {
     tipoFront,
