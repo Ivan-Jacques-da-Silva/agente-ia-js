@@ -33,6 +33,7 @@ import {
   gerarDiff
 } from "./analisador.js";
 import { processarChatComStreaming } from "./chat-stream.js";
+import { executarProvisionamento } from "./provisionar/orquestrador.js";
 
 const app = express();
 app.use(cors());
@@ -522,6 +523,67 @@ function graceful() {
 
 process.on("SIGINT", graceful);
 process.on("SIGTERM", graceful);
+
+app.post("/provisionar/executar", async (req, res) => {
+  try {
+    const { projetoId, opcoes = {} } = req.body || {};
+    
+    if (!projetoId) return res.status(400).json({ erro: "projetoId é obrigatório" });
+
+    const projeto = buscarProjetoPorId(projetoId);
+    if (!projeto || !projeto.caminho_local) {
+      return res.status(400).json({ erro: "Projeto não encontrado ou sem caminho local" });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    let abortado = false;
+    
+    req.on('close', () => {
+      abortado = true;
+    });
+
+    const callbackProgresso = (evento) => {
+      if (!abortado) {
+        res.write(`data: ${JSON.stringify(evento)}\n\n`);
+      }
+    };
+
+    const resultado = await executarProvisionamento(
+      projeto.caminho_local,
+      opcoes,
+      callbackProgresso
+    );
+
+    if (!abortado) {
+      res.write(`data: ${JSON.stringify({ 
+        tipo: 'finalizado', 
+        resultado 
+      })}\n\n`);
+      
+      if (resultado.sucesso) {
+        registrarHistorico(
+          projetoId, 
+          "provisionamento_concluido", 
+          `Provisionamento executado em ${resultado.tempoTotal}s`,
+          JSON.stringify(resultado.dados.relatorio?.relatorio || {})
+        );
+      }
+      
+      res.end();
+    }
+  } catch (e) {
+    if (!res.headersSent) {
+      res.status(500).json({ erro: String(e?.message || e) });
+    } else {
+      res.write(`data: ${JSON.stringify({ tipo: 'erro', mensagem: String(e?.message || e) })}\n\n`);
+      res.end();
+    }
+  }
+});
 
 app.post("/chat/stream", async (req, res) => {
   try {

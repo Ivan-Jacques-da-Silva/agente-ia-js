@@ -1,0 +1,23 @@
+[
+  { 
+    "acao": "digitar", 
+    "seletor": "input[name=\"email\"]", 
+    "valor": "admin@demo.com" 
+  },
+  { 
+    "acao": "digitar", 
+    "seletor": "input[name=\"senha\"]", 
+    "valor": "123456" 
+  },
+  { 
+    "acao": "clicar", 
+    "seletor": "button:has-text(\"Entrar\")" 
+  },
+  { 
+    "acao": "esperar_url", 
+    "padrao": "**/dashboard" 
+  },
+  { 
+    "acao": "screenshot" 
+  }
+]
