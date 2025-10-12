@@ -3,18 +3,21 @@ import { buscarContextoProjeto, salvarContextoArquivo } from "./database.js";
 import fs from "node:fs";
 import path from "node:path";
 
-function limparJSON(jsonString) {
-  return jsonString
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, (char) => {
-      const replacements = {
-        '\n': '\\n',
-        '\r': '\\r',
-        '\t': '\\t',
-        '\b': '\\b',
-        '\f': '\\f'
-      };
-      return replacements[char] || '';
-    });
+function extrairJSON(texto) {
+  try {
+    const inicio = texto.indexOf("{");
+    const fim = texto.lastIndexOf("}");
+    
+    if (inicio < 0 || fim <= inicio) {
+      return null;
+    }
+    
+    const jsonString = texto.slice(inicio, fim + 1).trim();
+    return JSON.parse(jsonString);
+  } catch (e) {
+    console.error("Erro ao extrair JSON:", e.message);
+    return null;
+  }
 }
 
 export async function analisarIntencao(mensagem, projetoId, arvore) {
@@ -22,47 +25,51 @@ export async function analisarIntencao(mensagem, projetoId, arvore) {
   const todosArquivos = arvore.filter(a => a.tipo === "file").map(a => a.path);
   const arquivosRelevantes = todosArquivos.slice(0, 300);
 
+  const temArquivos = arquivosRelevantes.length > 0;
+  const contextoMsg = temArquivos 
+    ? `O usuário já abriu um projeto com ${todosArquivos.length} arquivos.` 
+    : `Nenhum projeto aberto ainda.`;
+
   const prompt = `Você é um assistente prestativo que ajuda desenvolvedores! 
 
-Vamos trabalhar juntos nesta solicitação:
+CONTEXTO: ${contextoMsg}
+
+Solicitação do usuário:
 "${mensagem}"
 
-📁 Arquivos disponíveis no projeto:
-${arquivosRelevantes.join("\n")}
+${temArquivos ? `📁 Arquivos disponíveis no projeto aberto:
+${arquivosRelevantes.slice(0, 100).join("\n")}
 
 📝 Arquivos trabalhados recentemente:
-${contexto.map(c => `- ${c.caminho}`).join("\n")}
+${contexto.map(c => `- ${c.caminho}`).join("\n")}` : ''}
 
 Por favor, identifique:
-1. Quais arquivos preciso modificar
+1. Quais arquivos preciso modificar (se houver projeto aberto)
 2. Tipo de mudança (criação, edição, exclusão, refatoração)
 3. Complexidade (baixa, média, alta)
 4. Pontos de atenção
 5. Plano de ação claro
 
-Responda em JSON:
+Responda APENAS com JSON válido (sem quebras de linha nas strings):
 {
   "arquivos_alvo": ["caminho1", "caminho2"],
-  "tipo_mudanca": "edição|criação|exclusão|refatoração",
-  "complexidade": "baixa|média|alta",
-  "riscos": ["ponto1", "ponto2"],
-  "plano_acao": "Vou [explicar claramente o que farei para te ajudar]"
+  "tipo_mudanca": "edição",
+  "complexidade": "baixa",
+  "riscos": ["ponto1"],
+  "plano_acao": "Texto em uma linha"
 }
 
 IMPORTANTE:
-- Use SOMENTE arquivos que EXISTEM na lista do projeto
-- Para novos arquivos, escolha caminhos coerentes com a estrutura
+- Retorne JSON VÁLIDO sem quebras de linha nas strings
+- Se há projeto aberto, use SOMENTE arquivos EXISTENTES da lista
 - Seja específico e claro no plano de ação
 `;
 
   try {
     const resposta = await chat_simples("Analisando sua solicitação", prompt);
-    const inicio = resposta.indexOf("{");
-    const fim = resposta.lastIndexOf("}");
-
-    if (inicio >= 0 && fim > inicio) {
-      const jsonString = limparJSON(resposta.slice(inicio, fim + 1));
-      const json = JSON.parse(jsonString);
+    const json = extrairJSON(resposta);
+    
+    if (json) {
       return json;
     }
   } catch (e) {
@@ -225,33 +232,30 @@ ${a.conteudo}
 📂 Estrutura do projeto (amostra):
 ${listaArquivos}
 
-Responda em JSON com as mudanças necessárias:
+Responda APENAS com JSON válido (sem quebras de linha nas strings de descrição):
 {
   "mudancas": [
     {
       "arquivo": "caminho/do/arquivo.js",
       "conteudo_novo": "conteúdo completo do arquivo atualizado",
-      "descricao": "Descrição clara da mudança feita"
+      "descricao": "Descrição clara da mudança em uma linha"
     }
   ],
   "mensagem_commit": "mensagem descritiva para o commit"
 }
 
 IMPORTANTE:
+- Retorne JSON VÁLIDO sem quebras de linha nas strings de descrição/commit
 - Retorne o conteúdo COMPLETO de cada arquivo, não apenas trechos
 - Use caminhos EXATOS da lista de arquivos do projeto
 - Mantenha a formatação e estilo do código existente
-- Seja claro nas descrições das mudanças
 `;
 
   try {
     const resposta = await chat_simples("Gerando código otimizado", prompt);
-    const inicio = resposta.indexOf("{");
-    const fim = resposta.lastIndexOf("}");
-
-    if (inicio >= 0 && fim > inicio) {
-      const jsonString = limparJSON(resposta.slice(inicio, fim + 1));
-      const json = JSON.parse(jsonString);
+    const json = extrairJSON(resposta);
+    
+    if (json) {
       return { ...json, analise: { ...analise, passos } };
     }
   } catch (e) {
