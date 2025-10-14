@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 export function AttachmentMenu({ agenteUrl, onAnaliseCompleta }) {
   const [menuAberto, setMenuAberto] = useState(false);
@@ -7,6 +7,11 @@ export function AttachmentMenu({ agenteUrl, onAnaliseCompleta }) {
   const [tipoArquivo, setTipoArquivo] = useState(null);
   const imagemInputRef = useRef(null);
   const pdfInputRef = useRef(null);
+  const audioInputRef = useRef(null);
+
+  const [gravando, setGravando] = useState(false);
+  const recognitionRef = useRef(null);
+  const [transcricaoParcial, setTranscricaoParcial] = useState('');
 
   const handleAnexar = (tipo) => {
     setMenuAberto(false);
@@ -14,6 +19,8 @@ export function AttachmentMenu({ agenteUrl, onAnaliseCompleta }) {
       imagemInputRef.current?.click();
     } else if (tipo === 'pdf') {
       pdfInputRef.current?.click();
+    } else if (tipo === 'audio') {
+      audioInputRef.current?.click();
     }
   };
 
@@ -90,6 +97,105 @@ export function AttachmentMenu({ agenteUrl, onAnaliseCompleta }) {
     };
 
     reader.readAsDataURL(file);
+  };
+
+  const transcreverAudioArquivo = async (file) => {
+    if (!file || !agenteUrl) return;
+    setAnalisando(true);
+    setTipoArquivo('audio');
+    setProgresso({ tipo: 'inicio', texto: `🎙️ Transcrevendo áudio...`, timestamp: Date.now() });
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const base64 = event.target.result;
+        const response = await fetch(`${agenteUrl}/audio/transcrever`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audio: base64 })
+        });
+
+        const streamReader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let textoCompleto = '';
+
+        while (true) {
+          const { done, value } = await streamReader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n').filter(line => line.trim());
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.tipo === 'chunk') {
+                  textoCompleto = data.textoCompleto || '';
+                  setProgresso({ tipo: 'streaming', texto: textoCompleto, timestamp: Date.now() });
+                } else if (data.tipo === 'completo') {
+                  setProgresso({ tipo: 'sucesso', texto: data.resultado, timestamp: Date.now() });
+                  if (onAnaliseCompleta) {
+                    onAnaliseCompleta(data.resultado, 'audio', file.name);
+                  }
+                  setTimeout(() => {
+                    setAnalisando(false);
+                    setProgresso(null);
+                  }, 1500);
+                }
+              } catch (e) {
+                console.warn('Erro ao parsear SSE de áudio:', e);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        setProgresso({ tipo: 'erro', texto: `❌ Erro: ${e.message}`, timestamp: Date.now() });
+        setTimeout(() => {
+          setAnalisando(false);
+          setProgresso(null);
+        }, 3000);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Transcrição via Web Speech API (navegador)
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR) {
+      const rec = new SR();
+      rec.continuous = true;
+      rec.interimResults = true;
+      recognitionRef.current = rec;
+      rec.onresult = (e) => {
+        let final = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const trans = e.results[i][0].transcript;
+          if (e.results[i].isFinal) final += trans + ' ';
+          else setTranscricaoParcial(trans);
+        }
+        if (final) {
+          setTranscricaoParcial('');
+          if (onAnaliseCompleta) {
+            onAnaliseCompleta(final.trim(), 'audio', 'microfone');
+          }
+        }
+      };
+      rec.onerror = () => {
+        setGravando(false);
+      };
+    }
+  }, [onAnaliseCompleta]);
+
+  const iniciarGravacao = () => {
+    if (!recognitionRef.current) return;
+    setGravando(true);
+    recognitionRef.current.start();
+  };
+  const pararGravacao = () => {
+    try { recognitionRef.current?.stop(); } catch {}
+    setGravando(false);
   };
 
   return (
@@ -176,6 +282,54 @@ export function AttachmentMenu({ agenteUrl, onAnaliseCompleta }) {
               <span>📄</span>
               <span>PDF</span>
             </button>
+
+            <button
+              onClick={() => handleAnexar('audio')}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                background: 'none',
+                border: 'none',
+                color: '#dcddde',
+                cursor: 'pointer',
+                textAlign: 'left',
+                fontSize: '13px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <span>🎧</span>
+              <span>Áudio</span>
+            </button>
+
+            <div style={{ padding: '4px 8px', borderTop: '1px solid #2e3338', marginTop: '4px' }}>
+              <button
+                onClick={gravando ? pararGravacao : iniciarGravacao}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  background: gravando ? '#402020' : 'none',
+                  border: '1px solid #2e3338',
+                  color: '#dcddde',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontSize: '13px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  borderRadius: '4px'
+                }}
+              >
+                <span>{gravando ? '🛑' : '🎙️'}</span>
+                <span>{gravando ? 'Parar gravação (transcrição local)' : 'Gravar voz (transcrever no navegador)'}</span>
+              </button>
+              {transcricaoParcial && (
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#dcddde' }}>
+                  {transcricaoParcial}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}
@@ -198,6 +352,16 @@ export function AttachmentMenu({ agenteUrl, onAnaliseCompleta }) {
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) analisarArquivo(file, 'pdf');
+        }}
+        style={{ display: 'none' }}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) transcreverAudioArquivo(file);
         }}
         style={{ display: 'none' }}
       />

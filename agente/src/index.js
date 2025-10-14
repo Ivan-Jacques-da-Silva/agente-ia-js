@@ -32,7 +32,7 @@ import {
   analisarDiferencas,
   gerarDiff
 } from "./analisador.js";
-import { processarChatComStreaming } from "./chat-stream.js";
+import { processMessageStream } from "./core/agent.js";
 import { executarProvisionamento } from "./provisionar/orquestrador.js";
 
 const app = express();
@@ -156,6 +156,38 @@ app.post("/repo/abrir", async (req, res) => {
       conversas: [],
       historico: [],
       mudancasPendentes: mudancasPendentes
+    });
+  } catch (e) {
+    res.status(500).json({ erro: String(e?.message || e) });
+  }
+});
+
+// Criar projeto do zero (workspace vazio pronto para scaffold)
+app.post("/projeto/criar", async (req, res) => {
+  try {
+    const { nome, prompt } = req.body || {};
+
+    const nomeProjeto = (nome || "novo-projeto").toString();
+    const pasta = await resolveWorkspaceDirectory(nomeProjeto);
+    await fs.promises.mkdir(pasta, { recursive: true });
+
+    // Inicial mínimo: README para contexto
+    const readme = `# ${nomeProjeto}\n\nProjeto criado pelo Agente.\n\n${prompt ? `Intenção inicial:\n\n> ${prompt}\n` : ""}`;
+    await fs.promises.writeFile(path.join(pasta, "README.md"), readme, "utf-8");
+
+    const projetoId = criarProjeto(nomeProjeto, "", pasta, "main");
+    const novoProjeto = { id: projetoId, nome: nomeProjeto };
+    registrarHistorico(projetoId, "projeto_criado", "Projeto do zero criado");
+
+    const arvore = await listar_arvore(pasta);
+
+    res.json({
+      ok: true,
+      projeto: novoProjeto,
+      pasta,
+      arvore,
+      conversas: [],
+      historico: []
     });
   } catch (e) {
     res.status(500).json({ erro: String(e?.message || e) });
@@ -488,6 +520,36 @@ app.post("/vision/analisar", async (req, res) => {
   }
 });
 
+// Transcrição de áudio (SSE). Implementa recepção e fluxo de status.
+// Para transcrição real, configure um serviço Whisper externo e integre aqui.
+app.post("/audio/transcrever", async (req, res) => {
+  try {
+    const { audio } = req.body || {};
+    if (!audio) return res.status(400).json({ erro: "Áudio é obrigatório" });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    res.write(`data: ${JSON.stringify({ tipo: 'inicio', mensagem: '🎙️ Iniciando transcrição...' })}\n\n`);
+
+    // No backend local de STT configurado: emitimos sugestão e encerramos
+    const aviso = [
+      'Transcrição de áudio no backend não está configurada.',
+      'Use a opção de "Gravar voz (transcrever no navegador)" para transcrição imediata,',
+      'ou configure um serviço Whisper e integre aqui.'
+    ].join(' ');
+
+    res.write(`data: ${JSON.stringify({ tipo: 'chunk', conteudo: aviso, textoCompleto: aviso })}\n\n`);
+    res.write(`data: ${JSON.stringify({ tipo: 'completo', resultado: aviso })}\n\n`);
+    try { res.end(); } catch {}
+  } catch (e) {
+    res.write(`data: ${JSON.stringify({ tipo: 'erro', mensagem: String(e?.message || e) })}\n\n`);
+    try { res.end(); } catch {}
+  }
+});
+
 async function findAvailablePort(start) {
   for (let p = start; p < start + 50; p++) {
     const ok = await new Promise((resolve) => {
@@ -603,8 +665,14 @@ app.post("/chat/stream", async (req, res) => {
       url: projeto.repositorio_url
     };
 
+    // Configura SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
     const arvore = await listar_arvore(projeto.caminho_local);
-    await processarChatComStreaming(mensagem, estado, arvore, res);
+    await processMessageStream(mensagem, estado, arvore, res);
   } catch (e) {
     if (!res.headersSent) {
       res.status(500).json({ erro: String(e?.message || e) });

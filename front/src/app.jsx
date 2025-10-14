@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github-dark-dimmed.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
@@ -8,6 +8,9 @@ import { MudancaCard } from "./MudancaCard";
 import { HistoricoItem } from "./HistoricoItem";
 import { ThinkingProcess } from "./ThinkingProcess";
 import { enviarChatComStreaming, criarDiffVisualizer } from "./chat-utils";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import Landing from "./landing.jsx";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
 
@@ -276,7 +279,7 @@ export default function App() {
   const [mostrarMudancas, setMostrarMudancas] = useState(false);
   const [historico, setHistorico] = useState([]);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState("editor");
-  const [chatWidth, setChatWidth] = useState(360);
+  const [chatWidth, setChatWidth] = useState(720);
   const [isResizingChat, setIsResizingChat] = useState(false);
   const [copiando, setCopiando] = useState(false);
   const [menuAberto, setMenuAberto] = useState(null);
@@ -289,6 +292,8 @@ export default function App() {
   const [indiceMudancaAtual, setIndiceMudancaAtual] = useState(0);
   const [executarProvisionamento, setExecutarProvisionamento] = useState(false);
   const [progressoProvisionamento, setProgressoProvisionamento] = useState(null);
+  const [mostrarLandingForcado, setMostrarLandingForcado] = useState(true);
+  const [projetos, setProjetos] = useState([]);
 
   const chatResizeDataRef = useRef(null);
   const chatListRef = useRef(null);
@@ -383,7 +388,7 @@ export default function App() {
       setHistoricoAtual(j.historico || []);
       setChatMessages(mapConversasParaMensagens(j.conversas));
       setHistorico(j.historico || []);
-      setActiveWorkspaceTab("editor");
+      setActiveWorkspaceTab("history");
       setChatColapsado(false);
       setAbas([]);
       setAbaAtiva(null);
@@ -398,6 +403,115 @@ export default function App() {
           historico: j.historico || []
         } : s
       ));
+    });
+  }
+
+  // Abertura direta a partir da Landing
+  async function abrirRepoDireto(url) {
+    setRepo(url || "");
+    setCaminhoLocal("");
+    setMostrarLandingForcado(false);
+    await abrir_repo();
+  }
+
+  async function abrirProjetoExistente(projeto) {
+    setErro("");
+    if (!requireAgentReady()) return;
+    setMostrarLandingForcado(false);
+
+    await runWithLoading("Abrindo projeto...", async () => {
+      const rTree = await fetch(buildUrl(agenteUrl, `/repo/tree?projetoId=${encodeURIComponent(projeto.id)}`));
+      const jTree = await parseJsonResponse(rTree, "Falha ao carregar árvore do projeto");
+
+      const rHist = await fetch(buildUrl(agenteUrl, `/historico?projetoId=${encodeURIComponent(projeto.id)}`));
+      const jHist = await parseJsonResponse(rHist, "Falha ao carregar histórico do projeto");
+
+      const rConv = await fetch(buildUrl(agenteUrl, `/conversas?projetoId=${encodeURIComponent(projeto.id)}`));
+      const jConv = await parseJsonResponse(rConv, "Falha ao carregar conversas do projeto");
+
+      const mensagens = mapConversasParaMensagens(jConv?.conversas || jConv?.lista || jConv || []);
+
+      setProjetoAtual(projeto);
+      setArvore(jTree.arvore || []);
+      setArvoreAtual(jTree.arvore || []);
+      setHistorico(jHist?.historico || []);
+      setHistoricoAtual(jHist?.historico || []);
+      setChatMessages(mensagens);
+      setActiveWorkspaceTab("history");
+      setChatColapsado(false);
+      setAbas([]);
+      setAbaAtiva(null);
+
+      const existente = chatSessions.find(s => s.projeto?.id === projeto.id);
+      if (existente) {
+        setChatSessions(prev => prev.map(s => s.id === existente.id ? {
+          ...s,
+          projeto,
+          arvore: jTree.arvore || [],
+          historico: jHist?.historico || [],
+          messages: mensagens
+        } : s));
+        setActiveChatId(existente.id);
+      } else {
+        let novoIdLocal2;
+        setChatSessions(prev => {
+          const novoId = Math.max(...prev.map(s => s.id), 0) + 1;
+          novoIdLocal2 = novoId;
+          const novoChat = {
+            id: novoId,
+            name: 'Chat Principal',
+            messages: mensagens,
+            projeto,
+            arvore: jTree.arvore || [],
+            historico: jHist || []
+          };
+          return [...prev, novoChat];
+        });
+        if (novoIdLocal2) setActiveChatId(novoIdLocal2);
+      }
+    });
+  }
+
+  async function criarProjetoDoZero(promptInicial) {
+    setErro("");
+    if (!requireAgentReady()) return;
+    setMostrarLandingForcado(false);
+
+    const nomeSugerido = (promptInicial || "novo projeto").split(/[\n\r]/)[0].slice(0, 32) || "novo-projeto";
+
+    await runWithLoading("Criando projeto...", async () => {
+      const r = await fetch(buildUrl(agenteUrl, "/projeto/criar"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: nomeSugerido, prompt: promptInicial || "" })
+      });
+
+      const j = await parseJsonResponse(r, "Falha ao criar projeto");
+      setArvore(j.arvore || []);
+      setProjetoAtual(j.projeto);
+      setArvoreAtual(j.arvore || []);
+      setHistoricoAtual(j.historico || []);
+      setChatMessages(mapConversasParaMensagens(j?.conversas || []));
+      setHistorico(j.historico || []);
+      setActiveWorkspaceTab("history");
+      setChatColapsado(false);
+      setAbas([]);
+      setAbaAtiva(null);
+
+      // Salvar projeto no chat atual
+      setChatSessions(sessions => sessions.map(s => 
+        s.id === activeChatId ? {
+          ...s,
+          projeto: j.projeto,
+          arvore: j.arvore || [],
+          historico: j.historico || []
+        } : s
+      ));
+
+      // Se houver prompt, já envia como primeira mensagem para iniciar scaffold
+      const scaffoldHint = "\n\nCrie um projeto do zero com frontend React (Vite) e backend Node.js (Express) com Prisma e banco PostgreSQL. Estruture pastas front/ e api/ e um prisma/schema.prisma.";
+      const texto = (promptInicial || "Quero iniciar um projeto do zero.") + scaffoldHint;
+      setTimeout(() => enviar_chat(texto), 250);
     });
   }
 
@@ -773,13 +887,30 @@ export default function App() {
     }
   }, [activeChatId, chatSessions]);
 
+  const mostrarLanding = mostrarLandingForcado || !projetoAtual?.id;
+
+  useEffect(() => {
+    if (agenteStatus !== "ready") return;
+    if (!mostrarLanding) return;
+    (async () => {
+      try {
+        const r = await fetch(buildUrl(agenteUrl, "/projetos"));
+        const j = await r.json();
+        if (Array.isArray(j)) setProjetos(j);
+        else if (Array.isArray(j?.projetos)) setProjetos(j.projetos);
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, [agenteStatus, mostrarLanding, agenteUrl]);
+
   function criarNovoChat() {
     const novoId = Math.max(...chatSessions.map(s => s.id), 0) + 1;
     const novoChat = {
       id: novoId,
       name: `Chat ${novoId}`,
       messages: [],
-      projeto: null,
+      projeto: projetoAtual || null,
       arvore: [],
       historico: []
     };
@@ -1400,8 +1531,18 @@ export default function App() {
   }, [menuAberto]);
 
   return (
+    mostrarLanding ? (
+      <Landing 
+        onImportarGitHub={abrirRepoDireto}
+        onCriarDoZero={criarProjetoDoZero}
+        agenteStatus={agenteStatus}
+        projetos={projetos}
+        onAbrirProjeto={abrirProjetoExistente}
+      />
+    ) : (
     <div className="app-shell">
-      <aside className={classNames("app-sidebar", sidebarColapsada && "is-collapsed")}>
+      {false && (
+        <aside className={classNames("app-sidebar", sidebarColapsada && "is-collapsed")}>
         <div className="brand-header">
           <div className="brand-logo"><i className="fas fa-robot"></i></div>
           {!sidebarColapsada && (
@@ -1456,41 +1597,8 @@ export default function App() {
               </section>
             )}
 
-            <section className="sidebar-section">
-              <h2 className="section-title">Abrir Projeto</h2>
-              <div className="field-grid">
-                <label className="field-label" htmlFor="caminhoLocal">Caminho Local</label>
-                <input
-                  id="caminhoLocal"
-                  className="form-input"
-                  placeholder="/caminho/para/projeto"
-                  value={caminhoLocal}
-                  onChange={(e) => setCaminhoLocal(e.target.value)}
-                />
-
-                <label className="field-label" htmlFor="repoUrl">URL do repositório</label>
-                <input
-                  id="repoUrl"
-                  className="form-input"
-                  placeholder="https://github.com/org/projeto"
-                  value={repo}
-                  onChange={(e) => setRepo(e.target.value)}
-                />
-
-                <label className="field-label" htmlFor="branchBase">Branch Base</label>
-                <input
-                  id="branchBase"
-                  className="form-input"
-                  placeholder="main"
-                  value={branchBase}
-                  onChange={(e) => setBranchBase(e.target.value)}
-                />
-
-                <button className="button button-primary" onClick={abrir_repo} disabled={loading}>
-                  {loading ? "Processando..." : "Abrir Projeto"}
-                </button>
-              </div>
-            </section>
+            {/* Removido: bloco de "Abrir Projeto" na sidebar, pois já
+                acessamos repositório na etapa da Landing */}
 
             <section className="sidebar-section">
               <div className="chat-sessions-header">
@@ -1505,7 +1613,7 @@ export default function App() {
                 </button>
               </div>
               <div className="chat-sessions-list">
-                {chatSessions.map(session => (
+                {chatSessions.filter(s => s.projeto?.id === projetoAtual?.id).map(session => (
                   <div
                     key={session.id}
                     className={classNames("chat-session-item", session.id === activeChatId && "is-active")}
@@ -1557,6 +1665,7 @@ export default function App() {
           </>
         )}
       </aside>
+       )}
 
       <main className="main-content">
         <div className="window-chrome">
@@ -1619,10 +1728,10 @@ export default function App() {
           {erro && <div className="error-banner">{erro}</div>}
 
           <div
-            className="workspace-panels"
+            className="workspace-panels workspace-gradient"
             style={{ "--chat-panel-width": chatColapsado ? "40px" : `${chatWidth}px`, position: "relative" }}
           >
-            <div className="editor-stack">
+            <div className="editor-stack" style={{ order: 2 }}>
               <aside className={classNames("file-explorer", explorerColapsado && "is-collapsed")}>
                 <div className="file-explorer-header">
                   <span>{explorerColapsado ? "" : "Explorador"}</span>
@@ -1897,7 +2006,7 @@ export default function App() {
               />
             )}
 
-            <aside className={classNames("chat-panel", chatColapsado && "is-collapsed")}>
+            <aside className={classNames("chat-panel", chatColapsado && "is-collapsed")} style={{ order: 1, borderLeft: "none", borderRight: "1px solid var(--border-color)" }}>
               <div className="chat-header">
                 <span className="chat-title">
                   <i className="fas fa-comments"></i> {chatSessions.find(s => s.id === activeChatId)?.name || 'Chat'}
@@ -1918,6 +2027,32 @@ export default function App() {
                     onClick={() => setChatColapsado((v) => !v)}
                   >
                     <i className={`fas fa-chevron-${chatColapsado ? "left" : "right"}`}></i>
+                  </button>
+                </div>
+              </div>
+
+              {/* Abas horizontais de conversas no painel de chat */}
+              <div className="chat-tabs">
+                <div className="chat-tabs-list">
+                  {chatSessions.filter(s => s.projeto?.id === projetoAtual?.id).map(session => (
+                    <button
+                      key={session.id}
+                      type="button"
+                      className={classNames("chat-tab", session.id === activeChatId && "is-active")}
+                      onClick={() => setActiveChatId(session.id)}
+                      title={session.name}
+                    >
+                      <i className="fas fa-comment-dots" />
+                      <span className="chat-tab-name">{session.name}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="chat-tab chat-tab--add"
+                    onClick={criarNovoChat}
+                    title="Nova conversa"
+                  >
+                    <i className="fas fa-plus"></i>
                   </button>
                 </div>
               </div>
@@ -2001,7 +2136,13 @@ export default function App() {
                         <span className="chat-author">
                           <i className={`fas fa-${msg.role === "user" ? "user" : "robot"}`}></i> {msg.role === "user" ? "Você" : "Agente"}
                         </span>
-                        {textoSemPassos && <p className="chat-text">{textoSemPassos}</p>}
+                        {textoSemPassos && (
+                          <div className="chat-text chat-markdown">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {textoSemPassos}
+                            </ReactMarkdown>
+                          </div>
+                        )}
                         {passos && (
                           <div className="chat-steps">
                             <div className="chat-steps-title">
@@ -2346,5 +2487,6 @@ export default function App() {
       )}
 
     </div>
+    )
   );
 }
