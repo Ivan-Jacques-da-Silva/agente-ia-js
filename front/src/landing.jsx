@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export default function Landing({ onImportarGitHub, onCriarDoZero, agenteStatus, projetos = [], onAbrirProjeto }) {
+export default function Landing({ onImportarGitHub, onCriarDoZero, agenteStatus, projetos = [], onAbrirProjeto, onDeletarProjeto }) {
   const [prompt, setPrompt] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
 
@@ -73,7 +73,7 @@ export default function Landing({ onImportarGitHub, onCriarDoZero, agenteStatus,
                   key={p.id}
                   type="button"
                   className="project-card"
-                  style={{ textAlign: 'left' }}
+                  style={{ textAlign: 'left', position: 'relative' }}
                   onClick={() => onAbrirProjeto && onAbrirProjeto(p)}
                   title={`Abrir projeto ${p.nome}`}
                 >
@@ -88,6 +88,16 @@ export default function Landing({ onImportarGitHub, onCriarDoZero, agenteStatus,
                       )}
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    className="landing-icon-button"
+                    title="Apagar projeto"
+                    disabled={agenteStatus !== "ready"}
+                    onClick={(e) => { e.stopPropagation(); onDeletarProjeto && onDeletarProjeto(p); }}
+                    style={{ position: 'absolute', right: 8, top: 8 }}
+                  >
+                    <i className="fas fa-trash" />
+                  </button>
                 </button>
               ))}
             </div>

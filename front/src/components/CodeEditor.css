@@ -1,0 +1,338 @@
+/* Code Editor Styles */
+.code-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+}
+
+.code-editor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg-primary);
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-state i {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-state h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+/* Editor Header */
+.editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.file-info i {
+  color: var(--text-secondary);
+}
+
+.file-name {
+  font-weight: 500;
+}
+
+.file-path {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.modified-indicator {
+  color: var(--warning-color);
+  font-weight: bold;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.action-button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s ease;
+}
+
+.action-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Editor Content */
+.editor-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.line-numbers {
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  padding: 16px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid var(--border-color);
+  overflow: hidden;
+  min-width: 50px;
+}
+
+.line-number {
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.code-textarea {
+  flex: 1;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: none;
+  outline: none;
+  padding: 16px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  tab-size: 2;
+}
+
+.code-textarea::placeholder {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.code-textarea:focus {
+  background: var(--bg-primary);
+}
+
+/* Syntax highlighting classes (basic) */
+.language-javascript .code-textarea,
+.language-typescript .code-textarea {
+  /* JavaScript/TypeScript specific styles can be added here */
+}
+
+.language-css .code-textarea {
+  /* CSS specific styles */
+}
+
+.language-html .code-textarea {
+  /* HTML specific styles */
+}
+
+.language-json .code-textarea {
+  /* JSON specific styles */
+}
+
+.language-markdown .code-textarea {
+  /* Markdown specific styles */
+}
+
+.language-python .code-textarea {
+  /* Python specific styles */
+}
+
+/* Editor Footer */
+.editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  color: var(--text-secondary);
+  height: 24px;
+}
+
+.cursor-info,
+.language-info,
+.encoding-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.language-info {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: background 0.15s ease;
+}
+
+.language-info:hover {
+  background: var(--bg-hover);
+}
+
+/* Dark theme specific */
+.code-editor.dark {
+  --editor-bg: #1e1e1e;
+  --editor-text: #d4d4d4;
+  --editor-line-numbers: #858585;
+  --editor-selection: #264f78;
+  --editor-cursor: #ffffff;
+}
+
+.code-editor.dark .code-textarea {
+  background: var(--editor-bg);
+  color: var(--editor-text);
+  caret-color: var(--editor-cursor);
+}
+
+.code-editor.dark .code-textarea::selection {
+  background: var(--editor-selection);
+}
+
+.code-editor.dark .line-numbers {
+  background: var(--bg-secondary);
+  color: var(--editor-line-numbers);
+}
+
+/* Light theme specific */
+.code-editor.light {
+  --editor-bg: #ffffff;
+  --editor-text: #000000;
+  --editor-line-numbers: #237893;
+  --editor-selection: #add6ff;
+  --editor-cursor: #000000;
+}
+
+.code-editor.light .code-textarea {
+  background: var(--editor-bg);
+  color: var(--editor-text);
+  caret-color: var(--editor-cursor);
+}
+
+.code-editor.light .code-textarea::selection {
+  background: var(--editor-selection);
+}
+
+.code-editor.light .line-numbers {
+  background: #f8f8f8;
+  color: var(--editor-line-numbers);
+}
+
+/* Scrollbar styling */
+.code-textarea::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.code-textarea::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.code-textarea::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary);
+  border-radius: 6px;
+}
+
+.code-textarea::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+.code-textarea::-webkit-scrollbar-corner {
+  background: var(--bg-secondary);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .editor-header {
+    padding: 6px 12px;
+  }
+  
+  .file-info {
+    gap: 6px;
+  }
+  
+  .file-path {
+    display: none;
+  }
+  
+  .code-textarea {
+    padding: 12px;
+    font-size: 13px;
+  }
+  
+  .line-numbers {
+    padding: 12px 6px;
+    min-width: 40px;
+  }
+  
+  .editor-footer {
+    padding: 4px 12px;
+  }
+}
+
+/* Animation for smooth transitions */
+.code-editor {
+  transition: all 0.2s ease;
+}
+
+.action-button {
+  transition: all 0.15s ease;
+}
+
+/* Focus states */
+.code-textarea:focus {
+  box-shadow: inset 0 0 0 1px var(--primary-color);
+}
+
+/* Read-only state */
+.code-textarea[readonly] {
+  background: var(--bg-tertiary);
+  cursor: default;
+}
+
+.code-textarea[readonly]::placeholder {
+  color: var(--text-tertiary);
+}

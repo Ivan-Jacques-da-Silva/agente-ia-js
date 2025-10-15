@@ -1,0 +1,405 @@
+/* Welcome Screen Styles */
+.welcome-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+  overflow-y: auto;
+}
+
+.welcome-content {
+  flex: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 20px;
+  width: 100%;
+}
+
+/* Header */
+.welcome-header {
+  text-align: center;
+  margin-bottom: 60px;
+}
+
+.logo-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-section i {
+  font-size: 64px;
+  color: var(--primary-color);
+  margin-bottom: 8px;
+}
+
+.logo-section h1 {
+  margin: 0;
+  font-size: 48px;
+  font-weight: 300;
+  color: var(--text-primary);
+  letter-spacing: -1px;
+}
+
+.logo-section p {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-secondary);
+  font-weight: 300;
+}
+
+/* Main Content */
+.welcome-main {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+/* Quick Actions */
+.quick-actions h2 {
+  margin: 0 0 24px 0;
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.action-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.action-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.action-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary-color);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  background: var(--primary-color-alpha);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.card-icon i {
+  font-size: 20px;
+  color: var(--primary-color);
+}
+
+.card-content {
+  flex: 1;
+}
+
+.card-content h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.card-content p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.card-arrow {
+  color: var(--text-tertiary);
+  font-size: 14px;
+  opacity: 0;
+  transition: all 0.2s ease;
+}
+
+.action-card:hover .card-arrow {
+  opacity: 1;
+  transform: translateX(4px);
+}
+
+/* Recent Projects */
+.recent-projects h2 {
+  margin: 0 0 24px 0;
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.recent-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-color);
+}
+
+.recent-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.recent-icon i {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.recent-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.recent-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-path {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: 'Fira Code', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-date {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+/* Tips */
+.welcome-tips h2 {
+  margin: 0 0 24px 0;
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.tips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+}
+
+.tip-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.tip-item i {
+  font-size: 16px;
+  color: var(--primary-color);
+  flex-shrink: 0;
+}
+
+.tip-item strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.tip-item div {
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .welcome-content {
+    padding: 32px 16px;
+  }
+  
+  .action-cards {
+    grid-template-columns: 1fr;
+  }
+  
+  .tips-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .welcome-content {
+    padding: 24px 12px;
+  }
+  
+  .welcome-header {
+    margin-bottom: 40px;
+  }
+  
+  .logo-section i {
+    font-size: 48px;
+  }
+  
+  .logo-section h1 {
+    font-size: 36px;
+  }
+  
+  .logo-section p {
+    font-size: 16px;
+  }
+  
+  .welcome-main {
+    gap: 32px;
+  }
+  
+  .action-card {
+    padding: 20px;
+  }
+  
+  .card-icon {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .card-icon i {
+    font-size: 18px;
+  }
+  
+  .tips-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .welcome-content {
+    padding: 20px 8px;
+  }
+  
+  .action-card {
+    padding: 16px;
+    gap: 12px;
+  }
+  
+  .card-content h3 {
+    font-size: 15px;
+  }
+  
+  .card-content p {
+    font-size: 13px;
+  }
+  
+  .recent-item {
+    padding: 10px 12px;
+  }
+  
+  .tip-item {
+    padding: 12px;
+  }
+}
+
+/* Animation */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.welcome-screen {
+  animation: fade-in-up 0.4s ease-out;
+}
+
+.action-card {
+  animation: fade-in-up 0.4s ease-out;
+}
+
+.action-card:nth-child(1) { animation-delay: 0.1s; }
+.action-card:nth-child(2) { animation-delay: 0.2s; }
+.action-card:nth-child(3) { animation-delay: 0.3s; }
+
+/* Hover effects */
+.action-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  transition: left 0.5s ease;
+}
+
+.action-card:hover::before {
+  left: 100%;
+}
+
+/* Dark theme specific adjustments */
+[data-theme="dark"] .action-card::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.05),
+    transparent
+  );
+}
+
+/* Light theme specific adjustments */
+[data-theme="light"] .action-card::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 0, 0, 0.05),
+    transparent
+  );
+}

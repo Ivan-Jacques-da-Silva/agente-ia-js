@@ -255,4 +255,9 @@ export function restaurarVersaoArquivo(versaoId) {
   return stmt.get(versaoId);
 }
 
+export function deletarProjeto(projetoId) {
+  const stmt = db.prepare("DELETE FROM projetos WHERE id = ?");
+  stmt.run(projetoId);
+}
+
 export { db };

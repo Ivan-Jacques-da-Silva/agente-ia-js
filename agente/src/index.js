@@ -23,6 +23,7 @@ import {
   salvarConversa,
   buscarConversas,
   listarProjetos,
+  deletarProjeto,
   salvarVersaoArquivo,
   buscarVersoesArquivo,
   restaurarVersaoArquivo
@@ -464,6 +465,30 @@ app.get("/conversas", async (req, res) => {
     
     const conversas = buscarConversas(projetoId, 50);
     res.json({ conversas });
+  } catch (e) {
+    res.status(500).json({ erro: String(e?.message || e) });
+  }
+});
+
+app.post("/projeto/deletar", async (req, res) => {
+  try {
+    const { projetoId, removerArquivos = true } = req.body || {};
+    const id = projetoId ? parseInt(projetoId) : null;
+    if (!id) return res.status(400).json({ erro: "projetoId é obrigatório" });
+
+    const projeto = buscarProjetoPorId(id);
+    if (!projeto) return res.status(404).json({ erro: "Projeto não encontrado" });
+
+    if (removerArquivos && projeto.caminho_local) {
+      try {
+        await fs.promises.rm(projeto.caminho_local, { recursive: true, force: true });
+      } catch (e) {
+        // Ignora falhas ao remover diretório
+      }
+    }
+
+    deletarProjeto(id);
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ erro: String(e?.message || e) });
   }

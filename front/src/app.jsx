@@ -1,237 +1,207 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import hljs from "highlight.js/lib/common";
-import "highlight.js/styles/github-dark-dimmed.css";
-import "@fortawesome/fontawesome-free/css/all.min.css";
-import "./app.css";
-import { AttachmentMenu } from "./AttachmentMenu";
-import { MudancaCard } from "./MudancaCard";
-import { HistoricoItem } from "./HistoricoItem";
-import { ThinkingProcess } from "./ThinkingProcess";
-import { enviarChatComStreaming, criarDiffVisualizer } from "./chat-utils";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Landing from "./landing.jsx";
+import VSCodeLayout from "./components/VSCodeLayout.jsx";
+import { enviarChatComStreaming } from "./chat-utils.js";
+import "./app.css";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
 
 function normalizeBase(candidate) {
   if (!candidate) return null;
-  const raw = String(candidate).trim();
-  if (!raw) return null;
-  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, "");
-  if (raw.startsWith("//")) {
-    if (!ORIGIN) return null;
-    const protocol = ORIGIN.split(":")[0] || "http";
-    return `${protocol}:${raw}`.replace(/\/$/, "");
-  }
-  if (raw.startsWith("/")) {
-    if (!ORIGIN) return null;
-    return `${ORIGIN}${raw}`.replace(/\/$/, "");
-  }
-  if (ORIGIN) {
+  
+  // Se for uma URL completa, usar diretamente
+  if (candidate.includes("://")) {
     try {
-      const url = new URL(raw, `${ORIGIN}/`);
-      return url.toString().replace(/\/$/, "");
+      const url = new URL(candidate);
+      return url.origin + url.pathname.replace(/\/$/, "");
     } catch (e) {
-      console.warn("Falha ao normalizar endpoint", raw, e);
+      return null;
     }
   }
+  
+  // Se começar com /, usar o ORIGIN atual
+  if (candidate.startsWith("/")) {
+    return ORIGIN + candidate;
+  }
+  
   return null;
 }
 
 function uniqueCandidates(list) {
-  const vistos = new Set();
-  const resultado = [];
-  for (const item of list) {
-    const normalizado = normalizeBase(item);
-    if (normalizado && !vistos.has(normalizado)) {
-      vistos.add(normalizado);
-      resultado.push(normalizado);
+  const seen = new Set();
+  return list.filter((item) => {
+    const normalized = normalizeBase(item);
+    if (!normalized || seen.has(normalized)) {
+      return false;
     }
-  }
-  return resultado;
+    seen.add(normalized);
+    return true;
+  });
 }
 
 const AGENTE_CANDIDATES = uniqueCandidates([
-  import.meta.env.VITE_AGENT_URL,
-  "/agente",
-  ORIGIN ? `${ORIGIN}/agente` : null,
   "http://localhost:6060",
-]);
+  import.meta.env.VITE_AGENT_URL,
+  ORIGIN ? `${ORIGIN}/agente` : null,
+].filter(Boolean));
 
 function buildUrl(base, path) {
-  if (!base) return path;
-  if (!path) return base;
-  const trimmedBase = base.replace(/\/$/, "");
-  const texto = String(path);
-  if (/^https?:\/\//i.test(texto)) return texto;
-  if (texto.startsWith("?")) return `${trimmedBase}${texto}`;
-  const caminho = texto.startsWith("/") ? texto : `/${texto}`;
-  return `${trimmedBase}${caminho}`;
+  if (!base) return null;
+  
+  try {
+    // Se o path for absoluto (começar com /), usar diretamente com a base
+    if (path.startsWith("/")) {
+      const url = new URL(base);
+      url.pathname = path;
+      return url.toString();
+    }
+    
+    // Caso contrário, usar como relativo
+    const url = new URL(path, base);
+    return url.toString();
+  } catch (e) {
+    return null;
+  }
 }
 
 function buildTree(list) {
-  if (!Array.isArray(list)) return [];
-  const root = { children: {} };
-
-  const ensureDir = (parent, part, fullPath) => {
-    if (!parent.children[part]) {
-      parent.children[part] = { nome: part, tipo: "dir", fullPath, children: {} };
-    }
-    return parent.children[part];
-  };
-
-  for (const item of list) {
-    if (!item || !item.path) continue;
-    const partes = item.path.split("/");
-    let cursor = root;
-
-    partes.forEach((parte, idx) => {
-      const atualPath = partes.slice(0, idx + 1).join("/");
-      const ultimo = idx === partes.length - 1;
-
-      if (ultimo) {
-        if (item.tipo === "dir") {
-          const dir = ensureDir(cursor, parte, atualPath);
-          dir.tipo = "dir";
-        } else {
-          cursor.children[parte] = { nome: parte, tipo: item.tipo || "file", fullPath: item.path };
-        }
-      } else {
-        cursor = ensureDir(cursor, parte, atualPath);
+  const tree = {};
+  
+  list.forEach((item) => {
+    const parts = item.split('/').filter(Boolean);
+    let current = tree;
+    
+    parts.forEach((part, index) => {
+      if (!current[part]) {
+        current[part] = {
+          name: part,
+          fullPath: parts.slice(0, index + 1).join('/'),
+          isDirectory: index < parts.length - 1,
+          children: {}
+        };
       }
+      current = current[part].children;
     });
+  });
+  
+  function convertToArray(obj) {
+    return Object.values(obj).map(item => ({
+      ...item,
+      children: item.isDirectory ? convertToArray(item.children) : undefined
+    }));
   }
-
-  const ordenar = (nodes) => {
-    return nodes.sort((a, b) => {
-      if (a.tipo === b.tipo) return a.nome.localeCompare(b.nome);
-      return a.tipo === "dir" ? -1 : 1;
-    });
-  };
-
-  const toArray = (node) => {
-    return ordenar(Object.values(node.children)).map((item) => {
-      if (item.tipo === "dir") {
-        return { ...item, children: toArray(item) };
-      }
-      return item;
-    });
-  };
-
-  return toArray(root);
+  
+  return convertToArray(tree);
 }
 
 async function parseJsonResponse(response, fallbackMessage) {
-  const texto = await response.text();
-  let dados = {};
-
-  if (texto) {
-    try {
-      dados = JSON.parse(texto);
-    } catch (e) {
-      console.warn("Resposta não JSON recebida", texto);
-      dados = {};
+  try {
+    const text = await response.text();
+    if (!text.trim()) {
+      return { success: false, message: fallbackMessage || "Resposta vazia do servidor" };
     }
+    
+    try {
+      return JSON.parse(text);
+    } catch (jsonError) {
+      return { success: false, message: text || fallbackMessage };
+    }
+  } catch (error) {
+    return { success: false, message: fallbackMessage || "Erro ao processar resposta" };
   }
-
-  if (!response.ok) {
-    const erro = dados?.erro || fallbackMessage || "Falha ao comunicar com o serviço";
-    throw new Error(erro);
-  }
-
-  return dados;
 }
 
 function useEndpointResolver(candidates, healthPath) {
-  const [base, setBase] = useState(() => candidates[0] || "");
-  const [status, setStatus] = useState("resolving");
-  const signature = candidates.join("|");
+  const [state, setState] = useState({ base: null, status: "resolving" });
 
   useEffect(() => {
-    let active = true;
+    let cancelled = false;
 
     async function resolve() {
       for (const candidate of candidates) {
-        if (!candidate) continue;
+        if (cancelled) return;
+        
+        const base = normalizeBase(candidate);
+        if (!base) continue;
+        
         try {
-          const response = await fetch(buildUrl(candidate, healthPath));
-          if (response.ok) {
-            if (active) {
-              setBase(candidate);
-              setStatus("ready");
-            }
+          const healthUrl = buildUrl(base, healthPath);
+          if (!healthUrl) continue;
+          
+          const response = await fetch(healthUrl, { 
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+          });
+          
+          if (response.ok && !cancelled) {
+            setState({ base, status: "ready" });
             return;
           }
-        } catch {
-          // tenta o próximo candidato
+        } catch (error) {
+          // Continue to next candidate
         }
       }
-      if (active) setStatus("failed");
+      
+      if (!cancelled) {
+        setState({ base: null, status: "failed" });
+      }
     }
 
     resolve();
-    return () => {
-      active = false;
-    };
-  }, [healthPath, signature]);
+    return () => { cancelled = true; };
+  }, [candidates, healthPath]);
 
-  return { base, status };
+  return state;
 }
 
 function classNames(...classes) {
-  return classes.filter(Boolean).join(" ");
+  return classes.filter(Boolean).join(' ');
 }
 
 function createMessage(role, text, options = {}) {
   return {
-    id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     role,
-    text,
-    pending: Boolean(options.pending),
-    timestamp: options.timestamp || new Date().toISOString(),
+    content: text,
+    timestamp: Date.now(),
+    ...options
   };
 }
 
 function mapConversasParaMensagens(lista = []) {
-  const mensagens = [];
-  lista.forEach((item, index) => {
-    if (item.mensagem) {
-      mensagens.push({
-        id: `hist-${index}-user`,
-        role: "user",
-        text: item.mensagem,
-        timestamp: item.timestamp,
+  return lista.map(conversa => {
+    if (conversa.role === 'user') {
+      return createMessage('user', conversa.content, { 
+        timestamp: conversa.timestamp,
+        attachments: conversa.attachments 
+      });
+    } else if (conversa.role === 'assistant') {
+      return createMessage('assistant', conversa.content, { 
+        timestamp: conversa.timestamp,
+        thinking: conversa.thinking,
+        mudancas: conversa.mudancas 
       });
     }
-    if (item.resposta) {
-      mensagens.push({
-        id: `hist-${index}-agent`,
-        role: "agent",
-        text: item.resposta,
-        timestamp: item.timestamp,
-      });
-    }
+    return conversa;
   });
-  return mensagens;
 }
 
 function extractFileFromDescription(descricao) {
-  if (!descricao) return null;
-  const match = descricao.match(/Arquivo\s+(.+?)\s+(salvo|alterado)/i);
-  return match ? match[1] : null;
+  const match = descricao.match(/arquivo:\s*(.+)/i);
+  return match ? match[1].trim() : null;
 }
 
 function formatTimestamp(timestamp) {
-  if (!timestamp) return "";
-  try {
-    return new Intl.DateTimeFormat("pt-BR", {
-      dateStyle: "short",
-      timeStyle: "short",
-    }).format(new Date(timestamp));
-  } catch {
-    return timestamp;
-  }
+  if (!timestamp) return '';
+  
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  
+  if (diffMins < 1) return 'agora';
+  if (diffMins < 60) return `${diffMins}min atrás`;
+  if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h atrás`;
+  return date.toLocaleDateString();
 }
 
 export default function App() {
@@ -241,9 +211,11 @@ export default function App() {
   const [repoUrl, setRepoUrl] = useState("");
   const [caminhoLocal, setCaminhoLocal] = useState("");
   const [branchBase, setBranchBase] = useState("main");
+  const [projetoSemRepo, setProjetoSemRepo] = useState(false);
   const [erro, setErro] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
+  const [mostrarLandingForcado, setMostrarLandingForcado] = useState(true);
 
   const [arvore, setArvore] = useState([]);
   const [abas, setAbas] = useState([]);
@@ -251,13 +223,11 @@ export default function App() {
   
   const [chatSessions, setChatSessions] = useState(() => {
     const saved = localStorage.getItem('chatSessions');
-    return saved ? JSON.parse(saved) : [{ 
-      id: 1, 
-      name: 'Chat Principal', 
+    return saved ? JSON.parse(saved) : [{
+      id: 1,
+      name: 'Conversa Principal',
       messages: [],
-      projeto: null,
-      arvore: [],
-      historico: []
+      createdAt: Date.now()
     }];
   });
   const [activeChatId, setActiveChatId] = useState(1);
@@ -268,8 +238,7 @@ export default function App() {
   const [chatColapsado, setChatColapsado] = useState(false);
   const [sidebarColapsada, setSidebarColapsada] = useState(false);
   const [tema, setTema] = useState(() => {
-    const saved = localStorage.getItem('theme');
-    return saved || 'dark';
+    return localStorage.getItem('tema') || 'dark';
   });
   const [diretoriosAbertos, setDiretoriosAbertos] = useState({});
   const [projetoAtual, setProjetoAtual] = useState(null);
@@ -292,32 +261,23 @@ export default function App() {
   const [indiceMudancaAtual, setIndiceMudancaAtual] = useState(0);
   const [executarProvisionamento, setExecutarProvisionamento] = useState(false);
   const [progressoProvisionamento, setProgressoProvisionamento] = useState(null);
-  const [mostrarLandingForcado, setMostrarLandingForcado] = useState(true);
   const [projetos, setProjetos] = useState([]);
 
-  const chatResizeDataRef = useRef(null);
-  const chatListRef = useRef(null);
-  const menuRef = useRef(null);
-
-  const textareaRef = useRef(null);
-  const gutterRef = useRef(null);
-  const highlightRef = useRef(null);
-
   const requireAgentReady = useCallback(() => {
-    if (agenteStatus === "failed") {
-      setErro("Agente indisponível. Verifique o serviço do agente.");
+    if (agenteStatus !== "ready") {
+      setErro("Agente não está conectado. Verifique a conexão.");
       return false;
     }
-    if (agenteStatus !== "ready") {
-      setErro("Aguardando conexão com o agente...");
+    if (!agenteUrl) {
+      setErro("URL do agente não está disponível.");
       return false;
     }
     return true;
-  }, [agenteStatus]);
+  }, [agenteStatus, agenteUrl]);
 
   const runWithLoading = useCallback(async (message, task) => {
     setLoading(true);
-    setLoadingMessage(message || "Processando...");
+    setLoadingMessage(message);
     try {
       await task();
     } finally {
@@ -326,2167 +286,604 @@ export default function App() {
     }
   }, []);
 
-  // Salvar tema no localStorage e aplicar classe
+  // Aplicar tema
   useEffect(() => {
-    localStorage.setItem('theme', tema);
     document.documentElement.setAttribute('data-theme', tema);
+    localStorage.setItem('tema', tema);
   }, [tema]);
 
   const toggleTema = () => {
     setTema(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
+  const erroVisivel = useMemo(() => {
+    if (erro) return erro;
+    
+    if (projetoSemRepo) {
+      return "Este projeto não possui repositório Git configurado. Algumas funcionalidades podem estar limitadas.";
+    }
+    
+    if (agenteStatus === "failed") {
+      return "Não foi possível conectar ao agente. Verifique se o serviço está rodando.";
+    }
+    
+    return null;
+  }, [erro, projetoSemRepo, agenteStatus]);
+
   const carregarMudancasPendentes = useCallback(async () => {
-    if (!requireAgentReady()) return;
-    if (!projetoAtual?.id) return;
+    if (!requireAgentReady() || !projetoAtual?.id) return;
+    
     try {
-      const r = await fetch(buildUrl(agenteUrl, `/mudancas/pendentes?projetoId=${projetoAtual.id}`));
-      const j = await parseJsonResponse(r, "Falha ao carregar mudanças");
-      setMudancasPendentes(j.mudancas || []);
-    } catch (e) {
-      console.error("Erro ao carregar mudanças:", e);
+      const response = await fetch(buildUrl(agenteUrl, `/mudancas-pendentes/${projetoAtual.id}`));
+      const data = await parseJsonResponse(response, "Erro ao carregar mudanças pendentes");
+      if (data.success) {
+        setMudancasPendentes(data.mudancas || []);
+      }
+    } catch (error) {
+      console.error("Erro ao carregar mudanças pendentes:", error);
     }
   }, [agenteUrl, requireAgentReady, projetoAtual]);
 
   const carregarHistorico = useCallback(async () => {
-    if (!requireAgentReady()) return;
-    if (!projetoAtual?.id) return;
+    if (!requireAgentReady() || !projetoAtual?.id) return;
+    
     try {
-      const r = await fetch(buildUrl(agenteUrl, `/historico?projetoId=${projetoAtual.id}`));
-      const j = await parseJsonResponse(r, "Falha ao carregar histórico");
-      setHistorico(j.historico || []);
-    } catch (e) {
-      console.error("Erro ao carregar histórico:", e);
+      const response = await fetch(buildUrl(agenteUrl, `/historico/${projetoAtual.id}`));
+      const data = await parseJsonResponse(response, "Erro ao carregar histórico");
+      if (data.success) {
+        setHistoricoAtual(data.historico || []);
+      }
+    } catch (error) {
+      console.error("Erro ao carregar histórico:", error);
     }
   }, [agenteUrl, requireAgentReady, projetoAtual]);
 
   async function abrir_repo() {
-    setErro("");
     if (!requireAgentReady()) return;
 
-    await runWithLoading("Lendo repositório...", async () => {
-      const body = {};
-      if (caminhoLocal) {
-        body.caminhoLocal = caminhoLocal;
-      } else if (repo) {
-        body.repositorioUrl = repo;
-        body.branchBase = branchBase;
-      } else {
-        throw new Error("Informe a URL do repositório ou o caminho local");
+    await runWithLoading("Abrindo repositório...", async () => {
+      try {
+        const response = await fetch(buildUrl(agenteUrl, "/repo/abrir"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            repo: repo.trim(), 
+            repoUrl: repoUrl.trim(),
+            caminhoLocal: caminhoLocal.trim(),
+            branchBase: branchBase.trim() || "main"
+          }),
+        });
+
+        const data = await parseJsonResponse(response, "Erro ao abrir repositório");
+        
+        if (data.success) {
+          setProjetoAtual(data.projeto);
+          setArvoreAtual(data.arvore || []);
+          setMostrarLandingForcado(false);
+          setErro("");
+        } else {
+          setErro(data.message || "Erro desconhecido ao abrir repositório");
+        }
+      } catch (error) {
+        setErro("Erro de conexão ao tentar abrir repositório");
       }
-
-      const r = await fetch(buildUrl(agenteUrl, "/repo/abrir"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      const j = await parseJsonResponse(r, "Falha ao abrir repositório");
-      setArvore(j.arvore || []);
-      setProjetoAtual(j.projeto);
-      setArvoreAtual(j.arvore || []);
-      setHistoricoAtual(j.historico || []);
-      setChatMessages(mapConversasParaMensagens(j.conversas));
-      setHistorico(j.historico || []);
-      setActiveWorkspaceTab("history");
-      setChatColapsado(false);
-      setAbas([]);
-      setAbaAtiva(null);
-      await carregarMudancasPendentes();
-      
-      // Salvar projeto no chat atual
-      setChatSessions(sessions => sessions.map(s => 
-        s.id === activeChatId ? {
-          ...s,
-          projeto: j.projeto,
-          arvore: j.arvore || [],
-          historico: j.historico || []
-        } : s
-      ));
     });
   }
 
-  // Abertura direta a partir da Landing
   async function abrirRepoDireto(url) {
-    setRepo(url || "");
+    setRepoUrl(url);
+    setRepo("");
     setCaminhoLocal("");
-    setMostrarLandingForcado(false);
     await abrir_repo();
   }
 
   async function abrirProjetoExistente(projeto) {
-    setErro("");
     if (!requireAgentReady()) return;
-    setMostrarLandingForcado(false);
 
-    await runWithLoading("Abrindo projeto...", async () => {
-      const rTree = await fetch(buildUrl(agenteUrl, `/repo/tree?projetoId=${encodeURIComponent(projeto.id)}`));
-      const jTree = await parseJsonResponse(rTree, "Falha ao carregar árvore do projeto");
-
-      const rHist = await fetch(buildUrl(agenteUrl, `/historico?projetoId=${encodeURIComponent(projeto.id)}`));
-      const jHist = await parseJsonResponse(rHist, "Falha ao carregar histórico do projeto");
-
-      const rConv = await fetch(buildUrl(agenteUrl, `/conversas?projetoId=${encodeURIComponent(projeto.id)}`));
-      const jConv = await parseJsonResponse(rConv, "Falha ao carregar conversas do projeto");
-
-      const mensagens = mapConversasParaMensagens(jConv?.conversas || jConv?.lista || jConv || []);
-
-      setProjetoAtual(projeto);
-      setArvore(jTree.arvore || []);
-      setArvoreAtual(jTree.arvore || []);
-      setHistorico(jHist?.historico || []);
-      setHistoricoAtual(jHist?.historico || []);
-      setChatMessages(mensagens);
-      setActiveWorkspaceTab("history");
-      setChatColapsado(false);
-      setAbas([]);
-      setAbaAtiva(null);
-
-      const existente = chatSessions.find(s => s.projeto?.id === projeto.id);
-      if (existente) {
-        setChatSessions(prev => prev.map(s => s.id === existente.id ? {
-          ...s,
-          projeto,
-          arvore: jTree.arvore || [],
-          historico: jHist?.historico || [],
-          messages: mensagens
-        } : s));
-        setActiveChatId(existente.id);
-      } else {
-        let novoIdLocal2;
-        setChatSessions(prev => {
-          const novoId = Math.max(...prev.map(s => s.id), 0) + 1;
-          novoIdLocal2 = novoId;
-          const novoChat = {
-            id: novoId,
-            name: 'Chat Principal',
-            messages: mensagens,
-            projeto,
-            arvore: jTree.arvore || [],
-            historico: jHist || []
-          };
-          return [...prev, novoChat];
-        });
-        if (novoIdLocal2) setActiveChatId(novoIdLocal2);
+    await runWithLoading("Carregando projeto...", async () => {
+      try {
+        const response = await fetch(buildUrl(agenteUrl, `/projeto/${projeto.id}`));
+        const data = await parseJsonResponse(response, "Erro ao carregar projeto");
+        
+        if (data.success) {
+          setProjetoAtual(data.projeto);
+          setArvoreAtual(data.arvore || []);
+          setMostrarLandingForcado(false);
+          setErro("");
+          
+          // Carregar árvore de arquivos
+          const treeResponse = await fetch(buildUrl(agenteUrl, `/repo/tree?projeto=${projeto.id}`));
+          const treeData = await parseJsonResponse(treeResponse, "Erro ao carregar árvore de arquivos");
+          if (treeData.success) {
+            setArvore(treeData.arquivos || []);
+          }
+        } else {
+          setErro(data.message || "Erro ao carregar projeto");
+        }
+      } catch (error) {
+        setErro("Erro de conexão ao carregar projeto");
       }
     });
   }
 
   async function criarProjetoDoZero(promptInicial) {
-    setErro("");
-    if (!requireAgentReady()) return;
-    setMostrarLandingForcado(false);
-
-    const nomeSugerido = (promptInicial || "novo projeto").split(/[\n\r]/)[0].slice(0, 32) || "novo-projeto";
+    console.log("criarProjetoDoZero chamada com:", promptInicial);
+    console.log("agenteStatus:", agenteStatus);
+    console.log("agenteUrl:", agenteUrl);
+    
+    if (!requireAgentReady()) {
+      console.log("requireAgentReady retornou false");
+      return;
+    }
 
     await runWithLoading("Criando projeto...", async () => {
-      const r = await fetch(buildUrl(agenteUrl, "/projeto/criar"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome: nomeSugerido, prompt: promptInicial || "" })
-      });
+      try {
+        console.log("Enviando requisição para criar projeto...");
+        const response = await fetch(buildUrl(agenteUrl, "/projeto/criar"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            nome: `Projeto ${Date.now()}`,
+            descricao: promptInicial || "Projeto criado do zero"
+          }),
+        });
 
-      const j = await parseJsonResponse(r, "Falha ao criar projeto");
-      setArvore(j.arvore || []);
-      setProjetoAtual(j.projeto);
-      setArvoreAtual(j.arvore || []);
-      setHistoricoAtual(j.historico || []);
-      setChatMessages(mapConversasParaMensagens(j?.conversas || []));
-      setHistorico(j.historico || []);
-      setActiveWorkspaceTab("history");
-      setChatColapsado(false);
-      setAbas([]);
-      setAbaAtiva(null);
-
-      // Salvar projeto no chat atual
-      setChatSessions(sessions => sessions.map(s => 
-        s.id === activeChatId ? {
-          ...s,
-          projeto: j.projeto,
-          arvore: j.arvore || [],
-          historico: j.historico || []
-        } : s
-      ));
-
-      // Se houver prompt, já envia como primeira mensagem para iniciar scaffold
-      const scaffoldHint = "\n\nCrie um projeto do zero com frontend React (Vite) e backend Node.js (Express) com Prisma e banco PostgreSQL. Estruture pastas front/ e api/ e um prisma/schema.prisma.";
-      const texto = (promptInicial || "Quero iniciar um projeto do zero.") + scaffoldHint;
-      setTimeout(() => enviar_chat(texto), 250);
+        console.log("Resposta recebida:", response.status);
+        const data = await parseJsonResponse(response, "Erro ao criar projeto");
+        console.log("Dados da resposta:", data);
+        
+        if (data.success) {
+          setProjetoAtual(data.projeto);
+          setArvoreAtual(data.arvore || []);
+          setMostrarLandingForcado(false);
+          setErro("");
+          
+          // Se há prompt inicial, enviar para o chat
+          if (promptInicial) {
+            console.log("Enviando prompt inicial para o chat:", promptInicial);
+            setEntradaChat(promptInicial);
+            await enviar_chat(promptInicial);
+          }
+        } else {
+          console.log("Erro na resposta:", data.message);
+          setErro(data.message || "Erro ao criar projeto");
+        }
+      } catch (error) {
+        console.error("Erro ao criar projeto:", error);
+        setErro("Erro de conexão ao criar projeto");
+      }
     });
   }
 
   async function abrir_arquivo(p) {
-    if (!requireAgentReady()) return;
-    if (!projetoAtual?.id) {
-      setErro("Nenhum projeto aberto");
-      return;
-    }
-
-    // Verificar se o arquivo já está aberto em uma aba
-    const abaExistente = abas.find(aba => aba.path === p);
-    if (abaExistente) {
-      setAbaAtiva(abaExistente.id);
-      return;
-    }
+    if (!requireAgentReady() || !projetoAtual?.id) return;
 
     try {
-      const r = await fetch(buildUrl(agenteUrl, `/repo/file?path=${encodeURIComponent(p)}&projetoId=${projetoAtual.id}`));
-      const t = await r.text();
-
-      const novaAba = {
-        id: `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        path: p,
-        nome: p.split('/').pop(),
-        conteudo: t,
-        original: t,
-        dirty: false
-      };
-
-      setAbas(prev => [...prev, novaAba]);
-      setAbaAtiva(novaAba.id);
-    } catch (e) {
-      setErro(String(e?.message || e));
+      const response = await fetch(buildUrl(agenteUrl, `/repo/file?projeto=${projetoAtual.id}&arquivo=${encodeURIComponent(p)}`));
+      const data = await parseJsonResponse(response, "Erro ao abrir arquivo");
+      
+      if (data.success) {
+        const novaAba = {
+          id: Date.now(),
+          path: p,
+          conteudo: data.conteudo || "",
+          dirty: false
+        };
+        
+        setAbas(prev => {
+          const existente = prev.find(aba => aba.path === p);
+          if (existente) {
+            setAbaAtiva(existente.id);
+            return prev;
+          }
+          const novasAbas = [...prev, novaAba];
+          setAbaAtiva(novaAba.id);
+          return novasAbas;
+        });
+      } else {
+        setErro(data.message || "Erro ao abrir arquivo");
+      }
+    } catch (error) {
+      setErro("Erro de conexão ao abrir arquivo");
     }
   }
 
   function fecharAba(abaId, e) {
     if (e) {
+      e.preventDefault();
       e.stopPropagation();
     }
-
-    const abaIndex = abas.findIndex(a => a.id === abaId);
-    if (abaIndex === -1) return;
-
-    const aba = abas[abaIndex];
-    if (aba.dirty) {
-      if (!confirm(`O arquivo ${aba.nome} tem alterações não salvas. Deseja fechar mesmo assim?`)) {
-        return;
+    
+    setAbas(prev => {
+      const novasAbas = prev.filter(aba => aba.id !== abaId);
+      
+      if (abaAtiva === abaId) {
+        if (novasAbas.length > 0) {
+          const index = prev.findIndex(aba => aba.id === abaId);
+          const proximaAba = novasAbas[Math.min(index, novasAbas.length - 1)];
+          setAbaAtiva(proximaAba.id);
+        } else {
+          setAbaAtiva(null);
+        }
       }
-    }
-
-    const novasAbas = abas.filter(a => a.id !== abaId);
-    setAbas(novasAbas);
-
-    if (abaAtiva === abaId) {
-      if (novasAbas.length > 0) {
-        const proximaAba = novasAbas[Math.max(0, abaIndex - 1)];
-        setAbaAtiva(proximaAba.id);
-      } else {
-        setAbaAtiva(null);
-      }
-    }
+      
+      return novasAbas;
+    });
   }
 
   function atualizarConteudoAba(conteudoNovo) {
     if (!abaAtiva) return;
-
-    setAbas(prev => prev.map(aba => {
-      if (aba.id === abaAtiva) {
-        return {
-          ...aba,
-          conteudo: conteudoNovo,
-          dirty: conteudoNovo !== aba.original
-        };
-      }
-      return aba;
-    }));
+    
+    setAbas(prev => prev.map(aba => 
+      aba.id === abaAtiva 
+        ? { ...aba, conteudo: conteudoNovo, dirty: true }
+        : aba
+    ));
   }
 
   async function persistirArquivo() {
-    const abaAtual = abas.find(a => a.id === abaAtiva);
-    if (!abaAtual) return;
-    if (!requireAgentReady()) return;
-    if (!projetoAtual?.id) {
-      setErro("Nenhum projeto aberto");
-      return;
-    }
+    if (!requireAgentReady() || !projetoAtual?.id || !abaAtiva) return;
 
-    await runWithLoading("Salvando arquivo...", async () => {
-      const r = await fetch(buildUrl(agenteUrl, "/repo/save"), {
+    const aba = abas.find(a => a.id === abaAtiva);
+    if (!aba) return;
+
+    try {
+      const response = await fetch(buildUrl(agenteUrl, "/repo/save"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projetoId: projetoAtual.id, path: abaAtual.path, conteudo: abaAtual.conteudo }),
+        body: JSON.stringify({
+          projeto: projetoAtual.id,
+          arquivo: aba.path,
+          conteudo: aba.conteudo
+        }),
       });
 
-      await parseJsonResponse(r, "Falha ao salvar arquivo");
-
-      setAbas(prev => prev.map(aba => {
-        if (aba.id === abaAtiva) {
-          return { ...aba, original: aba.conteudo, dirty: false };
-        }
-        return aba;
-      }));
-
-      setErro("");
-      await carregarMudancasPendentes();
-      await carregarHistorico();
-    });
+      const data = await parseJsonResponse(response, "Erro ao salvar arquivo");
+      
+      if (data.success) {
+        setAbas(prev => prev.map(a => 
+          a.id === abaAtiva ? { ...a, dirty: false } : a
+        ));
+        setErro("");
+      } else {
+        setErro(data.message || "Erro ao salvar arquivo");
+      }
+    } catch (error) {
+      setErro("Erro de conexão ao salvar arquivo");
+    }
   }
 
   async function restaurarCodigo(caminhoArquivo, conteudo) {
-    if (!requireAgentReady()) return;
-    if (!projetoAtual?.id) {
-      setErro("Nenhum projeto aberto");
-      return;
-    }
+    if (!requireAgentReady() || !projetoAtual?.id) return;
 
-    await runWithLoading("Restaurando código...", async () => {
-      const r = await fetch(buildUrl(agenteUrl, "/repo/save"), {
+    try {
+      const response = await fetch(buildUrl(agenteUrl, "/repo/save"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projetoId: projetoAtual.id, path: caminhoArquivo, conteudo }),
+        body: JSON.stringify({
+          projeto: projetoAtual.id,
+          arquivo: caminhoArquivo,
+          conteudo: conteudo
+        }),
       });
 
-      await parseJsonResponse(r, "Falha ao restaurar código");
-
-      // Se o arquivo está aberto em uma aba, atualizar o conteúdo
-      const abaExistente = abas.find(aba => aba.path === caminhoArquivo);
-      if (abaExistente) {
-        setAbas(prev => prev.map(aba => {
-          if (aba.path === caminhoArquivo) {
-            return { ...aba, conteudo, original: conteudo, dirty: false };
-          }
-          return aba;
-        }));
+      const data = await parseJsonResponse(response, "Erro ao restaurar código");
+      
+      if (data.success) {
+        // Atualizar aba se estiver aberta
+        setAbas(prev => prev.map(aba => 
+          aba.path === caminhoArquivo 
+            ? { ...aba, conteudo: conteudo, dirty: false }
+            : aba
+        ));
+        setErro("");
+      } else {
+        setErro(data.message || "Erro ao restaurar código");
       }
-
-      setErro("");
-      await carregarHistorico();
-      alert("Código restaurado com sucesso!");
-    });
+    } catch (error) {
+      setErro("Erro de conexão ao restaurar código");
+    }
   }
 
   async function commit_push() {
-    if (!requireAgentReady()) return;
-    if (!projetoAtual?.id) {
-      setErro("Nenhum projeto aberto");
-      return;
-    }
+    if (!requireAgentReady() || !projetoAtual?.id) return;
 
-    await runWithLoading("Realizando commit...", async () => {
-      const r = await fetch(buildUrl(agenteUrl, "/repo/commit"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projetoId: projetoAtual.id, mensagem: `feat: atualizações em ${arquivoAtual || "projeto"}` }),
-      });
+    await runWithLoading("Fazendo commit e push...", async () => {
+      try {
+        const response = await fetch(buildUrl(agenteUrl, "/repo/commit"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projeto: projetoAtual.id,
+            mensagem: "Alterações via Agente IA"
+          }),
+        });
 
-      await parseJsonResponse(r, "Falha ao realizar commit");
-      setErro("");
-      await carregarHistorico();
-      alert("Commit realizado com sucesso!");
+        const data = await parseJsonResponse(response, "Erro ao fazer commit");
+        
+        if (data.success) {
+          setErro("");
+          await carregarHistorico();
+        } else {
+          setErro(data.message || "Erro ao fazer commit");
+        }
+      } catch (error) {
+        setErro("Erro de conexão ao fazer commit");
+      }
     });
   }
 
   async function enviar_chat(texto) {
-    const msg = texto.trim();
-    if (!msg) return;
-    if (!requireAgentReady()) {
-      setErro("Aguardando conexão com o agente para enviar mensagens.");
-      return;
-    }
-    if (!projetoAtual?.id) {
-      setErro("Nenhum projeto aberto");
-      return;
-    }
+    if (!requireAgentReady() || !projetoAtual?.id) return;
 
-    const userMessage = createMessage("user", msg);
-    const thinkingMsg = createMessage("agent", "", { pending: true });
-    thinkingMsg.isThinking = true;
-    thinkingMsg.thinkingSteps = [];
-
-    setChatMessages((prev) => [...prev, userMessage, thinkingMsg]);
+    const mensagemUsuario = createMessage('user', texto, { attachments: [] });
+    
+    setChatMessages(prev => [...prev, mensagemUsuario]);
     setEntradaChat("");
-
-    await enviarChatComStreaming(
-      msg,
-      agenteUrl,
-      projetoAtual.id,
-      (etapa) => {
-        setChatMessages((prev) => 
-          prev.map((m) => 
-            m.id === thinkingMsg.id
-              ? { ...m, thinkingSteps: [...(m.thinkingSteps || []), { text: etapa, status: 'completed' }] }
-              : m
-          )
-        );
-      },
-      (resultado) => {
-        const resposta = resultado.resposta || "Sem resposta";
-        const mudancas = resultado.mudancas || [];
-
-        setChatMessages((prev) => {
-          const filtered = prev.filter(m => m.id !== thinkingMsg.id);
-          const respostaMsg = createMessage("agent", resposta);
-          
-          let novasMensagens = [...filtered, respostaMsg];
-          
-          if (mudancas.length > 0) {
-            mudancas.forEach((mudanca) => {
-              const mudancaMsg = createMessage("agent", "", { pending: false });
-              mudancaMsg.isMudanca = true;
-              mudancaMsg.mudanca = mudanca;
-              novasMensagens.push(mudancaMsg);
-            });
-          }
-          
-          setChatSessions(sessions => sessions.map(s => 
-            s.id === activeChatId ? { ...s, messages: novasMensagens } : s
-          ));
-          
-          return novasMensagens;
-        });
-
-        carregarHistorico();
-        const activeSession = chatSessions.find(s => s.id === activeChatId);
-        if (activeSession && activeSession.messages.filter(m => m.role === 'user').length === 1) {
-          setTimeout(() => gerarTituloAutomatico(activeChatId), 500);
-        }
-      },
-      (erro) => {
-        setChatMessages((prev) =>
-          prev.map((item) =>
-            item.id === thinkingMsg.id
-              ? { ...item, text: `Erro: ${erro}`, pending: false, isThinking: false, thinkingSteps: [] }
-              : item
-          )
-        );
-      },
-      (pensamento) => {
-        setChatMessages((prev) => {
-          return prev.map((m) => {
-            if (m.id === thinkingMsg.id) {
-              const existingIndex = m.thinkingSteps.findIndex(s => s.text === pensamento.text);
-              if (existingIndex >= 0) {
-                const updated = [...m.thinkingSteps];
-                updated[existingIndex] = pensamento;
-                return { ...m, thinkingSteps: updated };
-              } else {
-                return { ...m, thinkingSteps: [...(m.thinkingSteps || []), pensamento] };
-              }
-            }
-            return m;
-          });
-        });
-      }
-    );
-  }
-
-  async function executarProvisionamentoCompleto(texto) {
-    if (!requireAgentReady()) return;
-    if (!projetoAtual?.id) {
-      setErro("Nenhum projeto aberto");
-      return;
-    }
-
-    const userMessage = createMessage("user", texto);
-    setChatMessages((prev) => [...prev, userMessage]);
-    setEntradaChat("");
-
-    const etapas = [
-      { nome: "analisar", titulo: "Analisando repositório", status: "pendente" },
-      { nome: "detectar", titulo: "Detectando stack", status: "pendente" },
-      { nome: "preparar", titulo: "Preparando ambiente", status: "pendente" },
-      { nome: "compose", titulo: "Gerando orquestração", status: "pendente" },
-      { nome: "subir", titulo: "Subindo serviços", status: "pendente" },
-      { nome: "simular", titulo: "Simulando interface", status: "pendente" },
-      { nome: "relatorio", titulo: "Gerando relatório", status: "pendente" }
-    ];
-
-    setProgressoProvisionamento({ etapas, status: "executando" });
-
-    const requestBody = JSON.stringify({
-      projetoId: projetoAtual.id,
-      opcoes: {}
-    });
+    setLoading(true);
 
     try {
-      const response = await fetch(buildUrl(agenteUrl, "/provisionar/executar"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: requestBody
-      });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-
-              if (data.tipo === 'finalizado') {
-                const resultado = data.resultado;
-                
-                setProgressoProvisionamento(prev => ({
-                  ...prev,
-                  status: resultado.sucesso ? "concluido" : "falhou",
-                  resultado
-                }));
-
-                const respostaMsg = createMessage(
-                  "agent",
-                  resultado.sucesso
-                    ? `✅ Provisionamento concluído!\n\nRelatório: ${resultado.dados?.relatorio?.caminho || 'gerado'}\nTempo total: ${resultado.tempoTotal}s`
-                    : `❌ Provisionamento falhou: ${resultado.erro || 'erro desconhecido'}`
-                );
-                setChatMessages(prev => [...prev, respostaMsg]);
-                
-              } else if (data.etapa) {
-                setProgressoProvisionamento(prev => {
-                  const novasEtapas = prev.etapas.map(et => {
-                    if (et.nome === data.etapa) {
-                      return {
-                        ...et,
-                        status: data.status,
-                        detalhes: data.detalhes
-                      };
-                    }
-                    return et;
-                  });
-                  return { ...prev, etapas: novasEtapas };
-                });
-              }
-            } catch (err) {
-              console.error("Erro ao processar evento SSE:", err);
+      await enviarChatComStreaming(
+        texto,
+        buildUrl(agenteUrl, "/chat/stream"),
+        (conteudo) => {
+          // onEtapa - adiciona conteúdo à mensagem do assistente
+          setChatMessages(prev => {
+            const lastMessage = prev[prev.length - 1];
+            if (lastMessage && lastMessage.role === 'assistant') {
+              return prev.slice(0, -1).concat([{
+                ...lastMessage,
+                content: lastMessage.content + conteudo
+              }]);
+            } else {
+              return prev.concat([createMessage('assistant', conteudo)]);
             }
-          }
+          });
+        },
+        (data) => {
+          // onCompleto
+          setLoading(false);
+          carregarMudancasPendentes();
+        },
+        (mensagemErro) => {
+          // onErro
+          setErro(mensagemErro);
+          setLoading(false);
+        },
+        (pensamento) => {
+          // onPensamento - pode ser usado para mostrar o que o agente está pensando
+          console.log("Pensamento do agente:", pensamento);
         }
-      }
-    } catch (err) {
-      setProgressoProvisionamento(prev => ({
-        ...prev,
-        status: "falhou"
-      }));
-      const errorMsg = createMessage("agent", `❌ Erro na conexão: ${err.message}`);
-      setChatMessages(prev => [...prev, errorMsg]);
+      );
+    } catch (error) {
+      setErro("Erro ao enviar mensagem para o chat");
+      setLoading(false);
     }
   }
 
+  // Salvar sessões de chat no localStorage
   useEffect(() => {
     localStorage.setItem('chatSessions', JSON.stringify(chatSessions));
   }, [chatSessions]);
 
+  // Carregar mensagens da sessão ativa
   useEffect(() => {
     const activeSession = chatSessions.find(s => s.id === activeChatId);
     if (activeSession) {
-      setChatMessages(activeSession.messages || []);
-      setProjetoAtual(activeSession.projeto || null);
-      setArvoreAtual(activeSession.arvore || []);
-      setHistoricoAtual(activeSession.historico || []);
-      setArvore(activeSession.arvore || []);
-      setHistorico(activeSession.historico || []);
+      setChatMessages(mapConversasParaMensagens(activeSession.messages));
+    } else {
+      setChatMessages([]);
     }
   }, [activeChatId, chatSessions]);
 
   const mostrarLanding = mostrarLandingForcado || !projetoAtual?.id;
 
+  // Carregar projetos na inicialização
   useEffect(() => {
-    if (agenteStatus !== "ready") return;
-    if (!mostrarLanding) return;
-    (async () => {
-      try {
-        const r = await fetch(buildUrl(agenteUrl, "/projetos"));
-        const j = await r.json();
-        if (Array.isArray(j)) setProjetos(j);
-        else if (Array.isArray(j?.projetos)) setProjetos(j.projetos);
-      } catch (e) {
-        // ignore
-      }
-    })();
-  }, [agenteStatus, mostrarLanding, agenteUrl]);
+    if (agenteStatus === "ready" && agenteUrl) {
+      fetch(buildUrl(agenteUrl, "/projetos"))
+        .then(response => parseJsonResponse(response, "Erro ao carregar projetos"))
+        .then(data => {
+          if (data.success) {
+            setProjetos(data.projetos || []);
+          }
+        })
+        .catch(error => {
+          console.error("Erro ao carregar projetos:", error);
+        });
+    }
+  }, [agenteStatus, agenteUrl]);
 
   function criarNovoChat() {
-    const novoId = Math.max(...chatSessions.map(s => s.id), 0) + 1;
-    const novoChat = {
+    const novoId = Math.max(...chatSessions.map(s => s.id)) + 1;
+    const novaSession = {
       id: novoId,
-      name: `Chat ${novoId}`,
+      name: `Conversa ${novoId}`,
       messages: [],
-      projeto: projetoAtual || null,
-      arvore: [],
-      historico: []
+      createdAt: Date.now()
     };
-    setChatSessions(prev => [...prev, novoChat]);
+    
+    setChatSessions(prev => [...prev, novaSession]);
     setActiveChatId(novoId);
   }
 
   function renomearChat(chatId, novoNome) {
-    setChatSessions(prev => prev.map(session =>
-      session.id === chatId
-        ? { ...session, name: novoNome }
-        : session
+    setChatSessions(prev => prev.map(session => 
+      session.id === chatId ? { ...session, name: novoNome } : session
     ));
   }
 
   function deletarChat(chatId) {
-    if (chatSessions.length === 1) {
-      alert('Você precisa ter pelo menos um chat ativo.');
-      return;
-    }
-    if (confirm('Tem certeza que deseja deletar este chat?')) {
-      setChatSessions(prev => prev.filter(s => s.id !== chatId));
+    if (chatSessions.length <= 1) return; // Manter pelo menos uma sessão
+    
+    setChatSessions(prev => {
+      const novasSessions = prev.filter(s => s.id !== chatId);
       if (activeChatId === chatId) {
-        setActiveChatId(chatSessions[0].id);
+        setActiveChatId(novasSessions[0].id);
       }
-    }
-  }
-
-  async function gerarTituloAutomatico(chatId) {
-    const session = chatSessions.find(s => s.id === chatId);
-    if (!session || !session.messages || session.messages.length === 0) return;
-    if (!requireAgentReady()) return;
-
-    const primeiras3Mensagens = session.messages
-      .filter(m => m.role === 'user')
-      .slice(0, 3)
-      .map(m => m.text)
-      .join(' ');
-
-    if (!primeiras3Mensagens) return;
-
-    try {
-      const r = await fetch(buildUrl(agenteUrl, "/chat/gerar-titulo"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contexto: primeiras3Mensagens }),
-      });
-
-      const j = await parseJsonResponse(r, "Falha ao gerar título");
-      if (j.titulo) {
-        renomearChat(chatId, j.titulo);
-      }
-    } catch (e) {
-      console.error("Erro ao gerar título automático:", e);
-    }
-  }
-
-  async function aprovarMudanca(mudancaId) {
-    if (!requireAgentReady()) return;
-    if (!projetoAtual?.id) {
-      setErro("Nenhum projeto aberto");
-      return;
-    }
-
-    await runWithLoading("Aplicando mudança...", async () => {
-      const r = await fetch(buildUrl(agenteUrl, "/mudancas/aprovar"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projetoId: projetoAtual.id, mudancaId }),
-      });
-
-      await parseJsonResponse(r, "Falha ao aprovar mudança");
-      await carregarMudancasPendentes();
-      await carregarHistorico();
-      setErro("");
-      alert("mudança aprovada e aplicada!");
+      return novasSessions;
     });
   }
 
-  async function rejeitarMudanca(mudancaId) {
-    if (!requireAgentReady()) return;
-    if (!projetoAtual?.id) {
-      setErro("Nenhum projeto aberto");
-      return;
-    }
+  function voltarParaInicio() {
+    setMostrarLandingForcado(true);
+    setProjetoAtual(null);
+    setArvoreAtual([]);
+    setAbas([]);
+    setAbaAtiva(null);
+  }
 
-    await runWithLoading("Rejeitando mudança...", async () => {
-      const r = await fetch(buildUrl(agenteUrl, "/mudancas/rejeitar"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projetoId: projetoAtual.id, mudancaId }),
+  async function deletarProjetoFrontend(p) {
+    if (!requireAgentReady()) return;
+
+    try {
+      const response = await fetch(buildUrl(agenteUrl, `/projeto/${p.id}`), {
+        method: "DELETE"
       });
 
-      await parseJsonResponse(r, "Falha ao rejeitar mudança");
-      await carregarMudancasPendentes();
-      await carregarHistorico();
-      setErro("");
-    });
-  }
-
-  // Copiar código inteiro do editor
-  async function copiar_codigo() {
-    const abaAtual = abas.find(a => a.id === abaAtiva);
-    const conteudo = abaAtual?.conteudo || "";
-
-    try {
-      await navigator.clipboard.writeText(conteudo);
-      setCopiando(true);
-      setTimeout(() => setCopiando(false), 1500);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = conteudo;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopiando(true);
-      setTimeout(() => setCopiando(false), 1500);
-    }
-  }
-
-  // Sistema de busca (Ctrl+F)
-  function realizarBusca(termo) {
-    setTextoBusca(termo);
-
-    const abaAtual = abas.find(a => a.id === abaAtiva);
-    if (!abaAtual || !termo) {
-      setResultadosBusca([]);
-      setIndiceBuscaAtual(0);
-      return;
-    }
-
-    const conteudo = abaAtual.conteudo;
-    const linhas = conteudo.split('\n');
-    const resultados = [];
-
-    linhas.forEach((linha, numLinha) => {
-      let index = 0;
-      while ((index = linha.toLowerCase().indexOf(termo.toLowerCase(), index)) !== -1) {
-        resultados.push({
-          linha: numLinha,
-          coluna: index,
-          texto: linha
-        });
-        index += termo.length;
+      const data = await parseJsonResponse(response, "Erro ao deletar projeto");
+      
+      if (data.success) {
+        setProjetos(prev => prev.filter(projeto => projeto.id !== p.id));
+        if (projetoAtual?.id === p.id) {
+          voltarParaInicio();
+        }
+      } else {
+        setErro(data.message || "Erro ao deletar projeto");
       }
-    });
-
-    setResultadosBusca(resultados);
-    setIndiceBuscaAtual(0);
-
-    if (resultados.length > 0) {
-      scrollParaBusca(resultados[0]);
+    } catch (error) {
+      setErro("Erro de conexão ao deletar projeto");
     }
   }
 
-  function proximaBusca() {
-    if (resultadosBusca.length === 0) return;
-    const novoIndice = (indiceBuscaAtual + 1) % resultadosBusca.length;
-    setIndiceBuscaAtual(novoIndice);
-    scrollParaBusca(resultadosBusca[novoIndice]);
-  }
-
-  function buscaAnterior() {
-    if (resultadosBusca.length === 0) return;
-    const novoIndice = (indiceBuscaAtual - 1 + resultadosBusca.length) % resultadosBusca.length;
-    setIndiceBuscaAtual(novoIndice);
-    scrollParaBusca(resultadosBusca[novoIndice]);
-  }
-
-  function scrollParaBusca(resultado) {
-    if (!textareaRef.current) return;
-
-    const abaAtual = abas.find(a => a.id === abaAtiva);
-    if (!abaAtual) return;
-
-    const linhas = abaAtual.conteudo.split('\n');
-    let posicao = 0;
-
-    for (let i = 0; i < resultado.linha; i++) {
-      posicao += linhas[i].length + 1;
-    }
-    posicao += resultado.coluna;
-
-    textareaRef.current.focus();
-    textareaRef.current.setSelectionRange(posicao, posicao + textoBusca.length);
-    textareaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
-  // Download de arquivo
-  async function downloadArquivo(filePath) {
-    if (!requireAgentReady()) return;
-    try {
-      const r = await fetch(buildUrl(agenteUrl, `/repo/file?path=${encodeURIComponent(filePath)}`));
-      const conteudoArquivo = await r.text();
-
-      const blob = new Blob([conteudoArquivo], { type: 'text/plain' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filePath.split('/').pop();
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      setMenuAberto(null);
-    } catch (e) {
-      setErro(`Erro ao baixar arquivo: ${e?.message || e}`);
-    }
-  }
-
-  // Renomear arquivo (placeholder para implementação futura)
-  async function renomearArquivo(filePath) {
-    // TODO: Implementar modal de renomeação
-    alert(`Função de renomear em desenvolvimento. Arquivo: ${filePath}`);
-    setMenuAberto(null);
-  }
-
-  const arvoreEstruturada = useMemo(() => buildTree(arvore), [arvore]);
-
-  const abaAtual = abas.find(a => a.id === abaAtiva);
-  const conteudo = abaAtual?.conteudo || "";
-  const dirty = abaAtual?.dirty || false;
+  // Preparar dados para o VSCodeLayout
+  const arquivos = useMemo(() => buildTree(arvore), [arvore]);
+  const abaAtual = abas.find(aba => aba.id === abaAtiva);
   const arquivoAtual = abaAtual?.path || null;
+  const conteudoArquivo = abaAtual?.conteudo || "";
+  const conversas = chatMessages;
 
+  const selecionarArquivo = useCallback((caminho) => {
+    abrir_arquivo(caminho);
+  }, []);
 
-  const linhasEditor = useMemo(() => {
-    const total = Math.max(1, String(conteudo).split("\n").length);
-    return Array.from({ length: total }, (_, i) => i + 1).join("\n");
-  }, [conteudo]);
+  const salvarArquivo = useCallback((caminho, conteudo) => {
+    // Atualizar conteúdo da aba e marcar como dirty
+    setAbas(prev => prev.map(aba => 
+      aba.path === caminho 
+        ? { ...aba, conteudo, dirty: true }
+        : aba
+    ));
+    
+    // Salvar automaticamente
+    persistirArquivo();
+  }, []);
 
-  function guessLanguage(file) {
-    if (!file) return null;
-    const f = String(file).toLowerCase();
-    if (f.endsWith(".js")) return "javascript";
-    if (f.endsWith(".jsx")) return "jsx";
-    if (f.endsWith(".ts")) return "typescript";
-    if (f.endsWith(".tsx")) return "tsx";
-    if (f.endsWith(".json")) return "json";
-    if (f.endsWith(".css")) return "css";
-    if (f.endsWith(".scss") || f.endsWith(".sass")) return "scss";
-    if (f.endsWith(".html") || f.endsWith(".htm")) return "xml";
-    if (f.endsWith(".md")) return "markdown";
-    if (f.endsWith(".yml") || f.endsWith(".yaml")) return "yaml";
-    if (f.endsWith(".py")) return "python";
-    if (f.endsWith(".rb")) return "ruby";
-    if (f.endsWith(".go")) return "go";
-    if (f.endsWith(".rs")) return "rust";
-    if (f.endsWith(".java")) return "java";
-    if (f.endsWith(".kt")) return "kotlin";
-    if (f.endsWith(".php")) return "php";
-    if (f.endsWith(".swift")) return "swift";
-    if (f.endsWith(".sql")) return "sql";
-    if (f.includes("dockerfile")) return "dockerfile";
-    if (f.endsWith("makefile")) return "makefile";
-    return null;
-  }
+  const criarArquivo = useCallback(async (caminho) => {
+    if (!requireAgentReady() || !projetoAtual?.id) return;
 
-  const highlightedHtml = useMemo(() => {
     try {
-      const lang = guessLanguage(abaAtual?.path);
-      if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(conteudo, { language: lang, ignoreIllegals: true }).value;
-      }
-      return hljs.highlightAuto(conteudo).value;
-    } catch {
-      const esc = String(conteudo).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
-      return esc;
-    }
-  }, [conteudo, abaAtual?.path]);
-
-  const onEditorScroll = (e) => {
-    const top = e.currentTarget.scrollTop;
-    if (gutterRef.current) gutterRef.current.style.transform = `translateY(-${top}px)`;
-    if (highlightRef.current) highlightRef.current.style.transform = `translateY(-${top}px)`;
-  };
-
-  useEffect(() => {
-    if (gutterRef.current) gutterRef.current.style.transform = "translateY(0px)";
-    if (highlightRef.current) highlightRef.current.style.transform = "translateY(0px)";
-  }, [arquivoAtual]);
-
-  function parseUnifiedDiff(text) {
-    if (!text || typeof text !== "string") return [];
-    const lines = text.split(/\r?\n/);
-    const out = [];
-    let oldNo = 0, newNo = 0;
-    for (const raw of lines) {
-      if (raw.startsWith("@@")) {
-        const m = raw.match(/@@ -([0-9]+),?([0-9]*) \+([0-9]+),?([0-9]*) @@/);
-        if (m) { oldNo = parseInt(m[1], 10); newNo = parseInt(m[3], 10); }
-        out.push({ type: "context", gutter: "", code: raw });
-        continue;
-      }
-      if (raw.startsWith("+") && !raw.startsWith("+++")) {
-        out.push({ type: "add", gutter: `  ${newNo++}`, code: raw });
-        continue;
-      }
-      if (raw.startsWith("-") && !raw.startsWith("---")) {
-        out.push({ type: "remove", gutter: `${oldNo++}  `, code: raw });
-        continue;
-      }
-      if (raw.startsWith("diff ") || raw.startsWith("index ") || raw.startsWith("--- ") || raw.startsWith("+++ ")) {
-        out.push({ type: "context", gutter: "", code: raw });
-        continue;
-      }
-      out.push({ type: "context", gutter: `${oldNo} ${newNo}`, code: raw });
-      oldNo++; newNo++;
-    }
-    return out;
-  }
-
-  function parseDiffForSplitView(diffText) {
-    if (!diffText) return { original: [], modified: [], changes: [] };
-
-    const lines = diffText.split(/\r?\n/);
-    const original = [];
-    const modified = [];
-    const changes = [];
-
-    let originalLineNum = 1;
-    let modifiedLineNum = 1;
-    let changeIndex = 0;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      if (line.startsWith('@@')) {
-        const match = line.match(/@@ -([0-9]+),?([0-9]*) \+([0-9]+),?([0-9]*) @@/);
-        if (match) {
-          originalLineNum = parseInt(match[1], 10);
-          modifiedLineNum = parseInt(match[3], 10);
-        }
-        continue;
-      }
-
-      if (line.startsWith('---') || line.startsWith('+++') || line.startsWith('diff ') || line.startsWith('index ')) {
-        continue;
-      }
-
-      if (line.startsWith('+')) {
-        modified.push({
-          lineNum: modifiedLineNum++,
-          content: line.substring(1),
-          type: 'added'
-        });
-        original.push({
-          lineNum: null,
-          content: '',
-          type: 'empty'
-        });
-        changes.push(modified.length - 1);
-        changeIndex++;
-      } else if (line.startsWith('-')) {
-        original.push({
-          lineNum: originalLineNum++,
-          content: line.substring(1),
-          type: 'removed'
-        });
-        modified.push({
-          lineNum: null,
-          content: '',
-          type: 'empty'
-        });
-        changes.push(original.length - 1);
-        changeIndex++;
-      } else {
-        original.push({
-          lineNum: originalLineNum++,
-          content: line.startsWith(' ') ? line.substring(1) : line,
-          type: 'context'
-        });
-        modified.push({
-          lineNum: modifiedLineNum++,
-          content: line.startsWith(' ') ? line.substring(1) : line,
-          type: 'context'
-        });
-      }
-    }
-
-    return { original, modified, changes };
-  }
-
-  function abrirDiffViewer(itemHistorico) {
-    const diffData = parseDiffForSplitView(itemHistorico.diff || '');
-    setDiffAtual({
-      arquivo: extractFileFromDescription(itemHistorico.descricao) || 'arquivo',
-      timestamp: itemHistorico.timestamp,
-      tipo: itemHistorico.tipo,
-      ...diffData
-    });
-    setIndiceMudancaAtual(0);
-    setDiffViewerAberto(true);
-  }
-
-  function navegarParaMudanca(direcao) {
-    if (!diffAtual || !diffAtual.changes.length) return;
-
-    const novoIndice = direcao === 'next'
-      ? Math.min(indiceMudancaAtual + 1, diffAtual.changes.length - 1)
-      : Math.max(indiceMudancaAtual - 1, 0);
-
-    setIndiceMudancaAtual(novoIndice);
-
-    const linhaAlvo = diffAtual.changes[novoIndice];
-    const elementos = document.querySelectorAll('.diff-code-line');
-    if (elementos[linhaAlvo]) {
-      elementos[linhaAlvo].scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }
-
-  const diffPaneLeftRef = useRef(null);
-  const diffPaneRightRef = useRef(null);
-
-  const sincronizarScroll = useCallback((source) => {
-    if (source === 'left' && diffPaneRightRef.current && diffPaneLeftRef.current) {
-      diffPaneRightRef.current.scrollTop = diffPaneLeftRef.current.scrollTop;
-    } else if (source === 'right' && diffPaneLeftRef.current && diffPaneRightRef.current) {
-      diffPaneLeftRef.current.scrollTop = diffPaneRightRef.current.scrollTop;
-    }
-  }, []);
-
-  function renderDiff(text) {
-    const rows = parseUnifiedDiff(text);
-    if (!rows.length) return null;
-    return (
-      <div className="diff-block">
-        {rows.map((r, i) => (
-          <div key={i} className={"diff-line diff-line--" + (r.type === "add" ? "add" : r.type === "remove" ? "remove" : "context")}>
-            <div className="diff-gutter">{r.gutter}</div>
-            <div className="diff-code">{r.code}</div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  useEffect(() => {
-    const inicial = {};
-    const visitar = (nodos) => {
-      nodos.forEach((n) => {
-        if (n.tipo === "dir") {
-          inicial[n.fullPath] = true;
-          if (n.children) visitar(n.children);
-        }
+      const response = await fetch(buildUrl(agenteUrl, "/repo/save"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projeto: projetoAtual.id,
+          arquivo: caminho,
+          conteudo: ""
+        }),
       });
-    };
-    visitar(arvoreEstruturada);
-    setDiretoriosAbertos((prev) => ({ ...inicial, ...prev }));
-  }, [arvoreEstruturada]);
 
-  useEffect(() => {
-    if (chatListRef.current) {
-      chatListRef.current.scrollTop = chatListRef.current.scrollHeight;
+      const data = await parseJsonResponse(response, "Erro ao criar arquivo");
+      
+      if (data.success) {
+        // Recarregar árvore de arquivos
+        const treeResponse = await fetch(buildUrl(agenteUrl, `/repo/tree?projeto=${projetoAtual.id}`));
+        const treeData = await parseJsonResponse(treeResponse, "Erro ao carregar árvore");
+        if (treeData.success) {
+          setArvore(treeData.arquivos || []);
+        }
+        
+        // Abrir o arquivo criado
+        abrir_arquivo(caminho);
+      } else {
+        setErro(data.message || "Erro ao criar arquivo");
+      }
+    } catch (error) {
+      setErro("Erro de conexão ao criar arquivo");
     }
-  }, [chatMessages]);
+  }, [requireAgentReady, projetoAtual, agenteUrl]);
 
-  useEffect(() => {
-    if (activeWorkspaceTab === "history") {
-      carregarHistorico();
-    }
-  }, [activeWorkspaceTab, carregarHistorico]);
-
-  const handleChatResize = useCallback((event) => {
-    if (!chatResizeDataRef.current) return;
-    const delta = chatResizeDataRef.current.startX - event.clientX;
-    const nextWidth = chatResizeDataRef.current.startWidth + delta;
-    const clamped = Math.min(520, Math.max(260, nextWidth));
-    setChatWidth(clamped);
+  const criarPasta = useCallback(async (caminho) => {
+    // Implementar criação de pasta se necessário
+    console.log("Criar pasta:", caminho);
   }, []);
 
-  const stopChatResize = useCallback(() => {
-    chatResizeDataRef.current = null;
-    setIsResizingChat(false);
-    window.removeEventListener("mousemove", handleChatResize);
-    window.removeEventListener("mouseup", stopChatResize);
-  }, [handleChatResize]);
+  const renomearArquivo = useCallback(async (caminhoAntigo, caminhoNovo) => {
+    // Implementar renomeação se necessário
+    console.log("Renomear arquivo:", caminhoAntigo, "para", caminhoNovo);
+  }, []);
 
-  const startChatResize = useCallback(
-    (event) => {
-      if (chatColapsado) return;
-      event.preventDefault();
-      chatResizeDataRef.current = { startX: event.clientX, startWidth: chatWidth };
-      setIsResizingChat(true);
-      window.addEventListener("mousemove", handleChatResize);
-      window.addEventListener("mouseup", stopChatResize);
-    },
-    [chatColapsado, chatWidth, handleChatResize, stopChatResize]
-  );
+  const downloadArquivo = useCallback(async (caminho) => {
+    if (!requireAgentReady() || !projetoAtual?.id) return;
 
-  useEffect(() => {
-    return () => {
-      window.removeEventListener("mousemove", handleChatResize);
-      window.removeEventListener("mouseup", stopChatResize);
-    };
-  }, [handleChatResize, stopChatResize]);
-
-  const renderNode = (node, nivel = 0) => {
-    const isDir = node.tipo === "dir";
-    const aberto = diretoriosAbertos[node.fullPath] ?? true;
-    const menuEstaAberto = menuAberto === node.fullPath;
-
-    const toggle = () => {
-      if (isDir) {
-        setDiretoriosAbertos((prev) => ({ ...prev, [node.fullPath]: !aberto }));
+    try {
+      const response = await fetch(buildUrl(agenteUrl, `/repo/file?projeto=${projetoAtual.id}&arquivo=${encodeURIComponent(caminho)}`));
+      const data = await parseJsonResponse(response, "Erro ao baixar arquivo");
+      
+      if (data.success) {
+        const blob = new Blob([data.conteudo], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = caminho.split('/').pop();
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
       } else {
-        abrir_arquivo(node.fullPath);
+        setErro(data.message || "Erro ao baixar arquivo");
       }
-    };
-
-    const toggleMenu = (e) => {
-      e.stopPropagation();
-      setMenuAberto(menuEstaAberto ? null : node.fullPath);
-    };
-
-    return (
-      <div key={node.fullPath} className="file-tree-branch">
-        <button
-          type="button"
-          onClick={toggle}
-          className={classNames(
-            "file-tree-item",
-            isDir && "file-tree-item--directory",
-            isDir && aberto && "is-open",
-            arquivoAtual === node.fullPath && "is-active"
-          )}
-          style={{ "--indent-level": nivel }}
-        >
-          <span className="file-tree-expander">{isDir ? (aberto ? <i className="fas fa-chevron-down"></i> : <i className="fas fa-chevron-right"></i>) : ""}</span>
-          <span className="file-tree-icon">{isDir ? <i className={`fas fa-folder${aberto ? "-open" : ""}`}></i> : <i className="fas fa-file-code"></i>}</span>
-          <span className="file-tree-label">{node.nome}</span>
-
-          {!isDir && (
-            <div className="file-tree-actions">
-              <button
-                type="button"
-                className="file-action-button"
-                onClick={toggleMenu}
-                aria-label="Mais opções"
-              >
-                <i className="fas fa-ellipsis-v"></i>
-              </button>
-
-              {menuEstaAberto && (
-                <div className="file-context-menu" ref={menuRef}>
-                  <button
-                    type="button"
-                    className="file-context-item"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      renomearArquivo(node.fullPath);
-                    }}
-                  >
-                    <span className="file-context-item-icon"><i className="fas fa-edit"></i></span>
-                    <span>Renomear</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="file-context-item"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      downloadArquivo(node.fullPath);
-                    }}
-                  >
-                    <span className="file-context-item-icon"><i className="fas fa-download"></i></span>
-                    <span>Download</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </button>
-        {isDir && aberto && node.children && node.children.map((filho) => renderNode(filho, nivel + 1))}
-      </div>
-    );
-  };
-
-  // Atalhos de teclado
-  useEffect(() => {
-    const onKey = (e) => {
-      // Ctrl/Cmd+Shift+C para copiar código
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "c") {
-        e.preventDefault();
-        copiar_codigo();
-      }
-
-      // Ctrl/Cmd+F para busca
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        setBuscaAberta(prev => !prev);
-      }
-
-      // ESC para fechar busca
-      if (e.key === "Escape" && buscaAberta) {
-        setBuscaAberta(false);
-        setTextoBusca("");
-        setResultadosBusca([]);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [buscaAberta]);
-
-  // Fechar menu ao clicar fora
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuAberto(null);
-      }
-    };
-
-    if (menuAberto) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+    } catch (error) {
+      setErro("Erro de conexão ao baixar arquivo");
     }
-  }, [menuAberto]);
+  }, [requireAgentReady, projetoAtual, agenteUrl]);
 
-  return (
-    mostrarLanding ? (
-      <Landing 
+  const enviarMensagem = useCallback((mensagem) => {
+    enviar_chat(mensagem);
+  }, []);
+
+  if (mostrarLanding) {
+    return (
+      <Landing
         onImportarGitHub={abrirRepoDireto}
         onCriarDoZero={criarProjetoDoZero}
         agenteStatus={agenteStatus}
         projetos={projetos}
         onAbrirProjeto={abrirProjetoExistente}
+        onDeletarProjeto={deletarProjetoFrontend}
       />
-    ) : (
-    <div className="app-shell">
-      {false && (
-        <aside className={classNames("app-sidebar", sidebarColapsada && "is-collapsed")}>
-        <div className="brand-header">
-          <div className="brand-logo"><i className="fas fa-robot"></i></div>
-          {!sidebarColapsada && (
-            <div className="brand-copy">
-              <span className="brand-title">Agente IA</span>
-              <span className="brand-subtitle">Sistema de Desenvolvimento</span>
-            </div>
-          )}
-          <button
-            type="button"
-            className="button button-tertiary sidebar-toggle"
-            onClick={() => setSidebarColapsada(v => !v)}
-            title={sidebarColapsada ? "Expandir sidebar" : "Minimizar sidebar"}
-          >
-            <i className={`fas fa-chevron-${sidebarColapsada ? "right" : "left"}`}></i>
-          </button>
-        </div>
+    );
+  }
 
-        {!sidebarColapsada && (
-          <>
-            <section className="sidebar-section">
-              <h2 className="section-title">Status da conexão</h2>
-              <div
-                className={classNames(
-                  "status-card",
-                  agenteStatus === "ready" && "status-card--ready",
-                  agenteStatus === "failed" && "status-card--failed"
-                )}
-              >
-                {agenteStatus === "ready"
-                  ? <><i className="fas fa-check-circle"></i> Conectado</>
-                  : agenteStatus === "resolving"
-                    ? <><i className="fas fa-spinner fa-spin"></i> Conectando...</>
-                    : <><i className="fas fa-times-circle"></i> Desconectado</>}
-              </div>
-            </section>
-
-            {projetoAtual && (
-              <section className="sidebar-section">
-                <h2 className="section-title">Projeto Atual</h2>
-                <div className="project-card">{projetoAtual.nome}</div>
-                <div className="field-grid" style={{ marginTop: '12px' }}>
-                  <label className="field-label" htmlFor="projetoRepoUrl">URL do Repositório</label>
-                  <input
-                    id="projetoRepoUrl"
-                    className="form-input"
-                    placeholder="https://github.com/org/projeto"
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                  />
-                </div>
-              </section>
-            )}
-
-            {/* Removido: bloco de "Abrir Projeto" na sidebar, pois já
-                acessamos repositório na etapa da Landing */}
-
-            <section className="sidebar-section">
-              <div className="chat-sessions-header">
-                <h2 className="section-title">Conversas</h2>
-                <button
-                  type="button"
-                  className="button button-tertiary"
-                  onClick={criarNovoChat}
-                  style={{ padding: '4px 8px', fontSize: '12px' }}
-                >
-                  <i className="fas fa-plus"></i>
-                </button>
-              </div>
-              <div className="chat-sessions-list">
-                {chatSessions.filter(s => s.projeto?.id === projetoAtual?.id).map(session => (
-                  <div
-                    key={session.id}
-                    className={classNames("chat-session-item", session.id === activeChatId && "is-active")}
-                    onClick={() => setActiveChatId(session.id)}
-                  >
-                    <span className="chat-session-name">{session.name}</span>
-                    <div className="chat-session-actions">
-                      <button
-                        type="button"
-                        className="chat-session-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const novoNome = prompt('Novo nome:', session.name);
-                          if (novoNome) renomearChat(session.id, novoNome);
-                        }}
-                        title="Renomear"
-                      >
-                        <i className="fas fa-edit"></i>
-                      </button>
-                      <button
-                        type="button"
-                        className="chat-session-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deletarChat(session.id);
-                        }}
-                        title="Deletar"
-                      >
-                        <i className="fas fa-trash"></i>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {mudancasPendentes.length > 0 && (
-              <section className="sidebar-section">
-                <button
-                  className="button button-attention"
-                  type="button"
-                  onClick={() => setMostrarMudancas(true)}
-                  disabled={loading}
-                >
-                  {mudancasPendentes.length} mudança(s) pendente(s)
-                </button>
-              </section>
-            )}
-          </>
-        )}
-      </aside>
-       )}
-
-      <main className="main-content">
-        <div className="window-chrome">
-          <div className="window-bar">
-            <div className="window-dots">
-              <span className="window-dot window-dot--red" />
-              <span className="window-dot window-dot--yellow" />
-              <span className="window-dot window-dot--green" />
-            </div>
-            <span className="window-title">Editor do Agente</span>
-            <div className="window-actions">
-              <button
-                type="button"
-                className="button button-secondary"
-                onClick={() => setExplorerColapsado((v) => !v)}
-                disabled={loading}
-              >
-                {explorerColapsado ? "Mostrar árvore" : "Ocultar árvore"}
-              </button>
-
-              <button
-                type="button"
-                className="button button-secondary"
-                onClick={toggleTema}
-                title={tema === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
-              >
-                <i className={`fas fa-${tema === 'dark' ? 'sun' : 'moon'}`}></i>
-              </button>
-
-              <button
-                type="button"
-                className="button button-secondary"
-                onClick={commit_push}
-                disabled={loading}
-              >
-                Commit & Push
-              </button>
-            </div>
-          </div>
-
-          <div className="tab-bar">
-            <div className="tab-group">
-              <button
-                type="button"
-                className={classNames("tab-item", activeWorkspaceTab === "editor" && "is-active")}
-                onClick={() => setActiveWorkspaceTab("editor")}
-              >
-                Editor
-              </button>
-              <button
-                type="button"
-                className={classNames("tab-item", activeWorkspaceTab === "history" && "is-active")}
-                onClick={() => setActiveWorkspaceTab("history")}
-              >
-                Histórico
-              </button>
-            </div>
-          </div>
-
-          {erro && <div className="error-banner">{erro}</div>}
-
-          <div
-            className="workspace-panels workspace-gradient"
-            style={{ "--chat-panel-width": chatColapsado ? "40px" : `${chatWidth}px`, position: "relative" }}
-          >
-            <div className="editor-stack" style={{ order: 2 }}>
-              <aside className={classNames("file-explorer", explorerColapsado && "is-collapsed")}>
-                <div className="file-explorer-header">
-                  <span>{explorerColapsado ? "" : "Explorador"}</span>
-                  <button
-                    type="button"
-                    className="button button-tertiary"
-                    onClick={() => setExplorerColapsado((v) => !v)}
-                  >
-                    <i className={`fas fa-chevron-${explorerColapsado ? "right" : "down"}`}></i>
-                  </button>
-                </div>
-                {!explorerColapsado && (
-                  <div className="file-tree">
-                    {arvoreEstruturada.length ? (
-                      arvoreEstruturada.map((nodo) => renderNode(nodo))
-                    ) : (
-                      <div className="empty-state">Nenhum projeto carregado.</div>
-                    )}
-                  </div>
-                )}
-              </aside>
-
-              <section className="editor-content">
-                {activeWorkspaceTab === "editor" ? (
-                  <div className="editor-column">
-                    {/* Barra de abas de arquivos */}
-                    <div className="file-tabs-bar">
-                      {abas.map(aba => (
-                        <div
-                          key={aba.id}
-                          className={classNames("file-tab", abaAtiva === aba.id && "is-active")}
-                          onClick={() => setAbaAtiva(aba.id)}
-                        >
-                          <span className="file-tab-icon"><i className="fas fa-file-code"></i></span>
-                          <span className="file-tab-name">{aba.nome}</span>
-                          {aba.dirty && <span className="file-tab-dot">●</span>}
-                          <button
-                            type="button"
-                            className="file-tab-close"
-                            onClick={(e) => fecharAba(aba.id, e)}
-                            aria-label="Fechar aba"
-                          >
-                            <i className="fas fa-times"></i>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Barra de ações do arquivo */}
-                    {abaAtual && (
-                      <div className="editor-actions-bar">
-                        <span className="editor-file-path">{abaAtual.path}</span>
-                        <div className="editor-actions">
-                          <button
-                            type="button"
-                            className="button button-tertiary"
-                            onClick={() => setBuscaAberta(prev => !prev)}
-                            title="Buscar no arquivo (Ctrl+F)"
-                          >
-                            🔍 Buscar
-                          </button>
-                          <button
-                            type="button"
-                            className="button button-tertiary"
-                            onClick={copiar_codigo}
-                            disabled={loading}
-                            title="Copiar código (Ctrl+Shift+C)"
-                          >
-                            {copiando ? <><i className="fas fa-check"></i> Copiado!</> : <><i className="fas fa-clipboard"></i> Copiar</>}
-                          </button>
-                          {dirty && (
-                            <button
-                              type="button"
-                              className="button button-primary"
-                              onClick={persistirArquivo}
-                              disabled={loading}
-                            >
-                              💾 Salvar
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Barra de busca (Ctrl+F) */}
-                    {buscaAberta && abaAtual && (
-                      <div className="search-bar">
-                        <input
-                          type="text"
-                          className="search-input"
-                          placeholder="Buscar no arquivo..."
-                          value={textoBusca}
-                          onChange={(e) => realizarBusca(e.target.value)}
-                          autoFocus
-                        />
-                        <div className="search-controls">
-                          <span className="search-count">
-                            {resultadosBusca.length > 0
-                              ? `${indiceBuscaAtual + 1} de ${resultadosBusca.length}`
-                              : textoBusca ? "0 resultados" : ""}
-                          </span>
-                          <button
-                            type="button"
-                            className="button button-tertiary"
-                            onClick={buscaAnterior}
-                            disabled={resultadosBusca.length === 0}
-                            title="Anterior"
-                          >
-                            <i className="fas fa-chevron-up"></i>
-                          </button>
-                          <button
-                            type="button"
-                            className="button button-tertiary"
-                            onClick={proximaBusca}
-                            disabled={resultadosBusca.length === 0}
-                            title="Próximo"
-                          >
-                            <i className="fas fa-chevron-down"></i>
-                          </button>
-                          <button
-                            type="button"
-                            className="button button-tertiary"
-                            onClick={() => {
-                              setBuscaAberta(false);
-                              setTextoBusca("");
-                              setResultadosBusca([]);
-                            }}
-                            title="Fechar (ESC)"
-                          >
-                            <i className="fas fa-times"></i>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="code-surface" style={{ position: "relative", display: "flex" }}>
-                      <pre
-                        ref={gutterRef}
-                        className="editor-gutter"
-                        style={{
-                          margin: 0,
-                          padding: "22px 8px",
-                          width: 56,
-                          boxSizing: "border-box",
-                          textAlign: "right",
-                          color: "#64748b",
-                          background: "rgba(10,16,30,0.9)",
-                          borderRight: "1px solid rgba(30,41,59,0.7)",
-                          fontFamily: "'Fira Code', 'JetBrains Mono', monospace",
-                          fontSize: 14,
-                          lineHeight: 1.6,
-                          whiteSpace: "pre",
-                          tabSize: 2,
-                          MozTabSize: 2,
-                        }}
-                        onWheel={(e) => {
-                          if (textareaRef.current) {
-                            textareaRef.current.scrollTop += e.deltaY;
-                            e.preventDefault();
-                          }
-                        }}
-                      >
-                        {linhasEditor}
-                      </pre>
-
-                      <div style={{ position: "relative", flex: 1 }}>
-                        <pre
-                          ref={highlightRef}
-                          aria-hidden
-                          style={{
-                            position: "absolute",
-                            top: 0, left: 0, right: 0,
-                            margin: 0,
-                            pointerEvents: "none",
-                            padding: "22px 28px",
-                            fontSize: 14,
-                            lineHeight: 1.6,
-                            fontFamily: "'Fira Code', 'JetBrains Mono', monospace",
-                            color: "#e2e8f0",
-                            whiteSpace: "pre",
-                            height: "auto",
-                            minHeight: "100%",
-                            zIndex: 0,
-                          }}
-                          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-                        />
-
-                        <textarea
-                          ref={textareaRef}
-                          value={conteudo}
-                          onChange={(e) => atualizarConteudoAba(e.target.value)}
-                          onScroll={onEditorScroll}
-                          className="code-textarea"
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            boxSizing: "border-box",
-                            background: "transparent",
-                            color: "transparent",
-                            WebkitTextFillColor: "transparent",
-                            caretColor: "#e2e8f0",
-                            fontFamily:
-                              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-                            border: 0,
-                            outline: "none",
-                            resize: "none",
-                            whiteSpace: "pre",
-                            position: "relative",
-                            zIndex: 1,
-                          }}
-                          wrap="off"
-                          placeholder="Selecione um arquivo para começar a edição"
-                          spellCheck={false}
-                          autoComplete="off"
-                          autoCorrect="off"
-                          autoCapitalize="off"
-                          translate="no"
-                        />
-                      </div>
-
-                      {dirty && abaAtual && (
-                        <div className="diff-bar">
-                          <div className="diff-info">
-                            <span>alterações não salvas em {abaAtual.path}</span>
-                            <button
-                              type="button"
-                              className="button button-tertiary"
-                              onClick={() => {
-                                setAbas(prev => prev.map(aba => {
-                                  if (aba.id === abaAtiva) {
-                                    return { ...aba, conteudo: aba.original, dirty: false };
-                                  }
-                                  return aba;
-                                }));
-                              }}
-                              disabled={loading}
-                            >
-                              Descartar alterações
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="history-panel">
-                    {historico.length ? (
-                      historico.map((item) => (
-                        <HistoricoItem
-                          key={`${item.timestamp}-${item.tipo}`}
-                          item={item}
-                          onVisualizarDiff={(diffData) => {
-                            setDiffAtual(diffData);
-                            setIndiceMudancaAtual(0);
-                            setDiffViewerAberto(true);
-                          }}
-                          onRestaurarCodigo={restaurarCodigo}
-                        />
-                      ))
-                    ) : (
-                      <div className="empty-state">Nenhum histórico disponível ainda.</div>
-                    )}
-                  </div>
-                )}
-              </section>
-            </div>
-
-            {!chatColapsado && (
-              <div
-                className={classNames("resize-handle", isResizingChat && "is-active")}
-                onMouseDown={startChatResize}
-              />
-            )}
-
-            <aside className={classNames("chat-panel", chatColapsado && "is-collapsed")} style={{ order: 1, borderLeft: "none", borderRight: "1px solid var(--border-color)" }}>
-              <div className="chat-header">
-                <span className="chat-title">
-                  <i className="fas fa-comments"></i> {chatSessions.find(s => s.id === activeChatId)?.name || 'Chat'}
-                </span>
-                <div className="chat-actions">
-                  {mudancasPendentes.length > 0 && (
-                    <button
-                      type="button"
-                      className="button button-tertiary"
-                      onClick={() => setMostrarMudancas(true)}
-                    >
-                      <i className="fas fa-file-code"></i> Revisar ({mudancasPendentes.length})
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="button button-tertiary"
-                    onClick={() => setChatColapsado((v) => !v)}
-                  >
-                    <i className={`fas fa-chevron-${chatColapsado ? "left" : "right"}`}></i>
-                  </button>
-                </div>
-              </div>
-
-              {/* Abas horizontais de conversas no painel de chat */}
-              <div className="chat-tabs">
-                <div className="chat-tabs-list">
-                  {chatSessions.filter(s => s.projeto?.id === projetoAtual?.id).map(session => (
-                    <button
-                      key={session.id}
-                      type="button"
-                      className={classNames("chat-tab", session.id === activeChatId && "is-active")}
-                      onClick={() => setActiveChatId(session.id)}
-                      title={session.name}
-                    >
-                      <i className="fas fa-comment-dots" />
-                      <span className="chat-tab-name">{session.name}</span>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="chat-tab chat-tab--add"
-                    onClick={criarNovoChat}
-                    title="Nova conversa"
-                  >
-                    <i className="fas fa-plus"></i>
-                  </button>
-                </div>
-              </div>
-
-              <div className="chat-message-list" ref={chatListRef}>
-                {chatMessages.length ? (
-                  chatMessages.map((msg) => {
-                    if (msg.isMudanca) {
-                      return (
-                        <div key={msg.id} className="chat-message chat-message--agent">
-                          <MudancaCard
-                            mudanca={msg.mudanca}
-                            onVisualizar={(mudanca) => {
-                              const diffData = criarDiffVisualizer(
-                                mudanca.conteudo_original || '',
-                                mudanca.conteudo_novo || ''
-                              );
-                              setDiffAtual({
-                                arquivo: mudanca.arquivo,
-                                tipo: 'mudanca_pendente',
-                                timestamp: new Date().toISOString(),
-                                ...diffData
-                              });
-                              setIndiceMudancaAtual(0);
-                              setDiffViewerAberto(true);
-                            }}
-                            onAprovar={aprovarMudanca}
-                            onRejeitar={rejeitarMudanca}
-                            loading={loading}
-                          />
-                        </div>
-                      );
-                    }
-
-                    if (msg.isThinking && msg.thinkingSteps) {
-                      return (
-                        <div key={msg.id} className="chat-message chat-message--thinking">
-                          <ThinkingProcess 
-                            steps={msg.thinkingSteps} 
-                            isActive={msg.pending}
-                            title="Working"
-                          />
-                        </div>
-                      );
-                    }
-
-                    if (msg.isSteps && msg.steps) {
-                      return (
-                        <div key={msg.id} className="chat-message chat-message--agent">
-                          <span className="chat-author">
-                            <i className="fas fa-robot"></i> Agente
-                          </span>
-                          <div className="chat-steps">
-                            {msg.steps.map((step, idx) => (
-                              <div key={idx} className="chat-step-message">
-                                {step}
-                              </div>
-                            ))}
-                            {msg.pending && (
-                              <div className="chat-step-message">
-                                <i className="fas fa-spinner fa-spin"></i> Processando...
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    const passos = msg.text?.startsWith("Passo a passo:") ? msg.text.split('\n').slice(1) : null;
-                    const textoSemPassos = passos ? null : msg.text;
-                    
-                    return (
-                      <div
-                        key={msg.id}
-                        className={classNames(
-                          "chat-message",
-                          msg.role === "user" ? "chat-message--user" : "chat-message--agent",
-                          msg.pending && "is-pending"
-                        )}
-                      >
-                        <span className="chat-author">
-                          <i className={`fas fa-${msg.role === "user" ? "user" : "robot"}`}></i> {msg.role === "user" ? "Você" : "Agente"}
-                        </span>
-                        {textoSemPassos && (
-                          <div className="chat-text chat-markdown">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {textoSemPassos}
-                            </ReactMarkdown>
-                          </div>
-                        )}
-                        {passos && (
-                          <div className="chat-steps">
-                            <div className="chat-steps-title">
-                              <i className="fas fa-list-ol"></i> Etapas
-                            </div>
-                            {passos.map((passo, idx) => (
-                              <div key={idx} className="chat-step">
-                                <i className="fas fa-check-circle chat-step-icon"></i>
-                                <span className="chat-step-text">{passo.replace(/^\d+\.\s*/, '')}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="empty-state">Converse com o agente para orientar edições e automatizar fluxos.</div>
-                )}
-              </div>
-
-              <div className="chat-composer">
-                <AttachmentMenu 
-                  agenteUrl={agenteUrl}
-                  onAnaliseCompleta={(resultado, tipo, nomeArquivo) => {
-                    const icone = tipo === 'pdf' ? <i className="fas fa-file-pdf"></i> : <i className="fas fa-image"></i>;
-                    setChatMessages(prev => [
-                      ...prev,
-                      { id: Date.now(), role: 'agent', text: `Análise de ${tipo} concluída (${nomeArquivo}):\n\n${resultado}` }
-                    ]);
-                  }}
-                />
-                <textarea
-                  className="chat-textarea"
-                  placeholder="Descreva a alteração desejada..."
-                  value={entradaChat}
-                  onChange={(e) => setEntradaChat(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (executarProvisionamento) {
-                        executarProvisionamentoCompleto(entradaChat);
-                      } else {
-                        enviar_chat(entradaChat);
-                      }
-                    }
-                  }}
-                  spellCheck={false}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                />
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                    <input
-                      type="checkbox"
-                      checked={executarProvisionamento}
-                      onChange={(e) => setExecutarProvisionamento(e.target.checked)}
-                      style={{ cursor: 'pointer' }}
-                    />
-                    <span>🐳 Provisionar</span>
-                  </label>
-                  <button
-                    type="button"
-                    className="button button-tertiary"
-                    onClick={() => {
-                      if (executarProvisionamento) {
-                        executarProvisionamentoCompleto(entradaChat);
-                      } else {
-                        enviar_chat(entradaChat);
-                      }
-                    }}
-                    disabled={loading}
-                    title="Enviar"
-                    style={{ padding: '8px 12px' }}
-                  >
-                    <i className="fas fa-paper-plane"></i>
-                  </button>
-                </div>
-              </div>
-              
-              {progressoProvisionamento && (
-                <div className="provisionamento-progresso" style={{ 
-                  padding: '12px', 
-                  background: 'var(--bg-secondary)', 
-                  borderRadius: '8px',
-                  marginTop: '12px'
-                }}>
-                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600' }}>
-                    <i className="fas fa-cog fa-spin"></i> Provisionamento e Simulação
-                  </h4>
-                  {progressoProvisionamento.etapas.map((etapa, idx) => (
-                    <div key={idx} style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '8px', 
-                      padding: '6px 0',
-                      fontSize: '13px'
-                    }}>
-                      {etapa.status === 'pendente' && <i className="fas fa-circle" style={{ color: '#666', fontSize: '8px' }}></i>}
-                      {etapa.status === 'iniciando' && <i className="fas fa-spinner fa-spin" style={{ color: '#ffa500' }}></i>}
-                      {etapa.status === 'concluido' && <i className="fas fa-check-circle" style={{ color: '#4caf50' }}></i>}
-                      {etapa.status === 'falhou' && <i className="fas fa-times-circle" style={{ color: '#f44336' }}></i>}
-                      {etapa.status === 'pulado' && <i className="fas fa-minus-circle" style={{ color: '#999' }}></i>}
-                      <span style={{ 
-                        color: etapa.status === 'concluido' ? '#4caf50' : etapa.status === 'falhou' ? '#f44336' : 'inherit'
-                      }}>
-                        {etapa.titulo}
-                      </span>
-                    </div>
-                  ))}
-                  {progressoProvisionamento.status === 'concluido' && (
-                    <button
-                      type="button"
-                      className="button button-tertiary"
-                      onClick={() => setProgressoProvisionamento(null)}
-                      style={{ marginTop: '8px', fontSize: '12px' }}
-                    >
-                      <i className="fas fa-times"></i> Fechar
-                    </button>
-                  )}
-                </div>
-              )}
-            </aside>
-          </div>
-        </div>
-        {/* Botão flutuante para alternar o chat (fixo, não some no scroll) */}
-        <button
-          type="button"
-          className={classNames("chat-fab", !chatColapsado && "is-hidden")}
-          onClick={() => setChatColapsado((v) => !v)}
-          title={chatColapsado ? "Abrir chat" : "Esconder chat"}
-          aria-label={chatColapsado ? "Abrir chat" : "Esconder chat"}
-        >
-          {chatColapsado ? "Abrir chat" : "Esconder chat"}
-        </button>
-
-      </main>
-
-      {mostrarMudancas && (
-        <div className="modal-layer" onClick={() => setMostrarMudancas(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">Mudanças pendentes de aprovação</h2>
-
-            {mudancasPendentes.map((mudanca) => (
-              <article key={mudanca.id} className="change-card">
-                <header className="change-header">
-                  <h3 className="change-title">{mudanca.arquivo}</h3>
-                  <span className="change-meta">{formatTimestamp(mudanca.criado_em)}</span>
-                </header>
-
-                <p className="change-description">{mudanca.descricao}</p>
-                <pre className="diff-preview">{(mudanca.diff || "").slice(0, 2000)}</pre>
-
-                <div className="modal-actions">
-                  <button
-                    type="button"
-                    className="button button-primary"
-                    onClick={() => aprovarMudanca(mudanca.id)}
-                    disabled={loading}
-                  >
-                    <i className="fas fa-check"></i> Aprovar e aplicar
-                  </button>
-
-                  <button
-                    type="button"
-                    className="button button-secondary"
-                    onClick={() => rejeitarMudanca(mudanca.id)}
-                    disabled={loading}
-                  >
-                    <i className="fas fa-times"></i> Rejeitar
-                  </button>
-                </div>
-              </article>
-            ))}
-
-            <button
-              type="button"
-              className="button button-tertiary"
-              onClick={() => setMostrarMudancas(false)}
-            >
-              Fechar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {diffViewerAberto && diffAtual && (
-        <div className="diff-viewer-modal" onClick={() => setDiffViewerAberto(false)}>
-          <div className="diff-viewer-container" onClick={(e) => e.stopPropagation()}>
-            <div className="diff-viewer-header">
-              <div className="diff-viewer-title">
-                <div className="diff-viewer-file">{diffAtual.arquivo}</div>
-                <div className="diff-viewer-meta">
-                  {diffAtual.tipo.replace(/_/g, ' ')} • {formatTimestamp(diffAtual.timestamp)}
-                </div>
-              </div>
-              <div className="diff-viewer-controls">
-                <div className="diff-stats">
-                  <span className="diff-stat-add">
-                    +{diffAtual.modified.filter(l => l.type === 'added').length}
-                  </span>
-                  <span className="diff-stat-remove">
-                    -{diffAtual.original.filter(l => l.type === 'removed').length}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="button button-tertiary"
-                  onClick={() => setDiffViewerAberto(false)}
-                >
-                  <i className="fas fa-times"></i> Fechar
-                </button>
-              </div>
-            </div>
-
-            <div className="diff-split-view">
-              <div className="diff-pane">
-                <div className="diff-pane-header diff-pane-header--original">
-                  <span>━</span>
-                  Original
-                </div>
-                <div
-                  className="diff-pane-content"
-                  ref={diffPaneLeftRef}
-                  onScroll={() => sincronizarScroll('left')}
-                >
-                  <div className="diff-line-container">
-                    <div className="diff-gutter">
-                      {diffAtual.original.map((line, idx) => (
-                        <div key={idx} style={{ minHeight: '21px', padding: '2px 0' }}>
-                          {line.lineNum || ''}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="diff-code-lines">
-                      {diffAtual.original.map((line, idx) => (
-                        <div
-                          key={idx}
-                          className={classNames(
-                            'diff-code-line',
-                            line.type === 'removed' && 'diff-line-removed',
-                            line.type === 'empty' && 'diff-line-empty',
-                            line.type === 'context' && 'diff-line-context'
-                          )}
-                        >
-                          <div className="diff-code-line-content">
-                            {line.content}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="diff-separator" />
-
-              <div className="diff-pane">
-                <div className="diff-pane-header diff-pane-header--modified">
-                  <span>+</span>
-                  Modificado
-                </div>
-                <div
-                  className="diff-pane-content"
-                  ref={diffPaneRightRef}
-                  onScroll={() => sincronizarScroll('right')}
-                >
-                  <div className="diff-line-container">
-                    <div className="diff-gutter">
-                      {diffAtual.modified.map((line, idx) => (
-                        <div key={idx} style={{ minHeight: '21px', padding: '2px 0' }}>
-                          {line.lineNum || ''}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="diff-code-lines">
-                      {diffAtual.modified.map((line, idx) => (
-                        <div
-                          key={idx}
-                          className={classNames(
-                            'diff-code-line',
-                            line.type === 'added' && 'diff-line-added',
-                            line.type === 'empty' && 'diff-line-empty',
-                            line.type === 'context' && 'diff-line-context'
-                          )}
-                        >
-                          <div className="diff-code-line-content">
-                            {line.content}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {diffAtual.changes.length > 0 && (
-                <div className="diff-navigation">
-                  <button
-                    type="button"
-                    className="diff-nav-button"
-                    onClick={() => navegarParaMudanca('prev')}
-                    disabled={indiceMudancaAtual === 0}
-                    title="Mudança anterior"
-                  >
-                    ↑
-                  </button>
-                  <div style={{
-                    fontSize: '11px',
-                    color: '#94a3b8',
-                    textAlign: 'center',
-                    padding: '4px',
-                    fontFamily: '"Fira Code", monospace'
-                  }}>
-                    {indiceMudancaAtual + 1}/{diffAtual.changes.length}
-                  </div>
-                  <button
-                    type="button"
-                    className="diff-nav-button"
-                    onClick={() => navegarParaMudanca('next')}
-                    disabled={indiceMudancaAtual === diffAtual.changes.length - 1}
-                    title="Próxima mudança"
-                  >
-                    ↓
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="diff-viewer-footer">
-              <button
-                type="button"
-                className="button button-secondary"
-                onClick={() => setDiffViewerAberto(false)}
-              >
-                Fechar visualizador
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-    </div>
-    )
+  return (
+    <VSCodeLayout
+      currentProject={projetoAtual}
+      fileTree={arquivos}
+      openTabs={abas}
+      activeTab={abaAtiva}
+      fileContents={conteudoArquivo}
+      chatMessages={conversas}
+      isLoading={loading}
+      theme={tema}
+      onOpenFolder={voltarParaInicio}
+      onCreateProject={criarProjetoDoZero}
+      onCloneRepository={abrirRepoDireto}
+      onFileSelect={selecionarArquivo}
+      onFileChange={atualizarConteudoAba}
+      onTabClose={fecharAba}
+      onTabSwitch={setAbaAtiva}
+      onSendMessage={enviarMensagem}
+      onThemeToggle={toggleTema}
+    />
   );
 }
