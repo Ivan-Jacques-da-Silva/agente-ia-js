@@ -3,6 +3,35 @@ import React, { useState } from "react";
 export default function Landing({ onImportarGitHub, onCriarDoZero, agenteStatus, projetos = [], onAbrirProjeto, onDeletarProjeto }) {
   const [prompt, setPrompt] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const projectsPerPage = 6;
+
+  // Calcular projetos para a página atual
+  const totalPages = Math.ceil(projetos.length / projectsPerPage);
+  const startIndex = (currentPage - 1) * projectsPerPage;
+  const endIndex = startIndex + projectsPerPage;
+  const currentProjects = projetos.slice(startIndex, endIndex);
+
+  const handleDeleteProject = (project, e) => {
+    e.stopPropagation();
+    if (window.confirm(`Tem certeza que deseja excluir o projeto "${project.nome || `Projeto ${project.id}`}"?`)) {
+      onDeletarProjeto && onDeletarProjeto(project);
+    }
+  };
+
+  const handleCriarDoZero = async () => {
+    if (!prompt.trim() || agenteStatus !== "ready" || isCreatingProject) return;
+    
+    setIsCreatingProject(true);
+    try {
+      await onCriarDoZero(prompt);
+    } catch (error) {
+      console.error("Erro ao criar projeto:", error);
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
 
   return (
     <div className="landing-root">
@@ -17,6 +46,7 @@ export default function Landing({ onImportarGitHub, onCriarDoZero, agenteStatus,
             placeholder="Peça para criar uma landing page, um CRUD, ou descreva seu projeto..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            disabled={isCreatingProject}
           />
           <div className="landing-toolbar">
             <div className="landing-toolbar-left">
@@ -37,11 +67,15 @@ export default function Landing({ onImportarGitHub, onCriarDoZero, agenteStatus,
               <button
                 type="button"
                 className="landing-icon-button"
-                title="Enviar"
-                onClick={() => onCriarDoZero(prompt)}
-                disabled={agenteStatus !== "ready"}
+                title={isCreatingProject ? "Criando projeto..." : "Enviar"}
+                onClick={handleCriarDoZero}
+                disabled={agenteStatus !== "ready" || !prompt.trim() || isCreatingProject}
               >
-                <i className="fas fa-arrow-up" />
+                {isCreatingProject ? (
+                  <div className="loading-spinner" style={{ width: 16, height: 16 }} />
+                ) : (
+                  <i className="fas fa-arrow-up" />
+                )}
               </button>
             </div>
           </div>
@@ -66,41 +100,204 @@ export default function Landing({ onImportarGitHub, onCriarDoZero, agenteStatus,
         {/* Lista de projetos existentes */}
         {projetos?.length > 0 && (
           <section style={{ marginTop: 24 }}>
-            <h2 className="section-title" style={{ marginBottom: 12 }}>Seus Projetos</h2>
-            <div className="projects-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
-              {projetos.map((p) => (
+            <div className="projects-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Seus Projetos ({projetos.length})</h2>
+              {totalPages > 1 && (
+                <div className="pagination-info" style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Página {currentPage} de {totalPages}
+                </div>
+              )}
+            </div>
+            <div className="projects-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+              {currentProjects.map((p) => (
                 <button
                   key={p.id}
                   type="button"
                   className="project-card"
-                  style={{ textAlign: 'left', position: 'relative' }}
+                  style={{ 
+                    textAlign: 'left', 
+                    position: 'relative',
+                    padding: '16px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '12px',
+                    backdropFilter: 'blur(10px)',
+                    transition: 'all 0.2s ease',
+                    cursor: 'pointer'
+                  }}
                   onClick={() => onAbrirProjeto && onAbrirProjeto(p)}
                   title={`Abrir projeto ${p.nome}`}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                    e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                    e.target.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                    e.target.style.transform = 'translateY(0)';
+                  }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <i className="fas fa-folder-open" style={{ color: 'var(--primary-color)' }} />
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 700 }}>{p.nome || `Projeto ${p.id}`}</span>
-                      {p.ultimo_acesso && (
-                        <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
-                          Último acesso: {new Date(p.ultimo_acesso).toLocaleString('pt-BR')}
-                        </span>
-                      )}
+                  <div className="project-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                    <div className="project-icon" style={{ 
+                      width: '40px', 
+                      height: '40px', 
+                      background: 'var(--primary-color)', 
+                      borderRadius: '8px', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      color: 'white'
+                    }}>
+                      <i className="fas fa-folder" />
+                    </div>
+                    <button
+                      type="button"
+                      className="delete-btn"
+                      title="Excluir projeto"
+                      onClick={(e) => handleDeleteProject(p, e)}
+                      style={{
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                        borderRadius: '6px',
+                        padding: '6px 8px',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = 'rgba(239, 68, 68, 0.2)';
+                        e.target.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'rgba(239, 68, 68, 0.1)';
+                        e.target.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+                      }}
+                    >
+                      <i className="fas fa-trash" />
+                    </button>
+                  </div>
+                  <div className="project-info">
+                    <div className="project-name" style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px', color: 'var(--text-primary)' }}>
+                      {p.nome || `Projeto ${p.id}`}
+                    </div>
+                    <div className="project-path" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', wordBreak: 'break-all' }}>
+                      {p.caminho_local || 'Caminho não disponível'}
+                    </div>
+                    <div className="project-date" style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                      {p.ultimo_acesso ? `Último acesso: ${new Date(p.ultimo_acesso).toLocaleString('pt-BR')}` : 'Data não disponível'}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="landing-icon-button"
-                    title="Apagar projeto"
-                    disabled={agenteStatus !== "ready"}
-                    onClick={(e) => { e.stopPropagation(); onDeletarProjeto && onDeletarProjeto(p); }}
-                    style={{ position: 'absolute', right: 8, top: 8 }}
-                  >
-                    <i className="fas fa-trash" />
-                  </button>
                 </button>
               ))}
             </div>
+            {totalPages > 1 && (
+              <div className="pagination" style={{ 
+                display: 'flex', 
+                justifyContent: 'center', 
+                alignItems: 'center', 
+                gap: '8px', 
+                marginTop: '24px' 
+              }}>
+                <button 
+                  className="pagination-btn"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    color: 'var(--text-primary)',
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === 1 ? 0.5 : 1,
+                    fontSize: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (currentPage !== 1) {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.15)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (currentPage !== 1) {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.1)';
+                    }
+                  }}
+                >
+                  <i className="fas fa-chevron-left"></i>
+                  Anterior
+                </button>
+                <div className="pagination-pages" style={{ display: 'flex', gap: '4px' }}>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    <button
+                      key={page}
+                      className={`pagination-page ${page === currentPage ? 'active' : ''}`}
+                      onClick={() => setCurrentPage(page)}
+                      style={{
+                        background: page === currentPage ? 'var(--primary-color)' : 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: page === currentPage ? 'white' : 'var(--text-primary)',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        minWidth: '36px',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (page !== currentPage) {
+                          e.target.style.background = 'rgba(255, 255, 255, 0.15)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (page !== currentPage) {
+                          e.target.style.background = 'rgba(255, 255, 255, 0.1)';
+                        }
+                      }}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+                <button 
+                  className="pagination-btn"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    color: 'var(--text-primary)',
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === totalPages ? 0.5 : 1,
+                    fontSize: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (currentPage !== totalPages) {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.15)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (currentPage !== totalPages) {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.1)';
+                    }
+                  }}
+                >
+                  Próxima
+                  <i className="fas fa-chevron-right"></i>
+                </button>
+              </div>
+            )}
           </section>
         )}
 

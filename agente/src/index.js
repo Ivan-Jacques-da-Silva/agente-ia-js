@@ -7,6 +7,10 @@ import path from "node:path";
 import os from "node:os";
 import { chat_simples, analisar_imagem_stream } from "./llm.js";
 import { clonar_repositorio, criar_branch, commit_e_push } from "./ferramentas.js";
+import { CriadorProjeto } from "./criar-projeto.js";
+
+// Importar rotas
+import agenticRoutes from './routes/agentic.js';
 import {
   criarProjeto,
   buscarProjetoPorUrl,
@@ -40,6 +44,9 @@ const app = express();
 app.use(cors());
 app.options('*', cors());
 app.use(express.json({ limit: "10mb" }));
+
+// Configurar rotas agentic
+app.use('/api/agentic', agenticRoutes);
 
 app.get("/saude", (_req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
@@ -169,29 +176,68 @@ app.post("/projeto/criar", async (req, res) => {
     const { nome, prompt } = req.body || {};
 
     const nomeProjeto = (nome || "novo-projeto").toString();
-    const pasta = await resolveWorkspaceDirectory(nomeProjeto);
-    await fs.promises.mkdir(pasta, { recursive: true });
+    const pastaAgentes = path.join(process.cwd(), "..", "Agentes");
+    
+    // Garantir que a pasta Agentes existe
+    await fs.promises.mkdir(pastaAgentes, { recursive: true });
 
-    // Inicial mínimo: README para contexto
-    const readme = `# ${nomeProjeto}\n\nProjeto criado pelo Agente.\n\n${prompt ? `Intenção inicial:\n\n> ${prompt}\n` : ""}`;
-    await fs.promises.writeFile(path.join(pasta, "README.md"), readme, "utf-8");
-
-    const projetoId = criarProjeto(nomeProjeto, "", pasta, "main");
-    const novoProjeto = { id: projetoId, nome: nomeProjeto };
-    registrarHistorico(projetoId, "projeto_criado", "Projeto do zero criado");
-
-    const arvore = await listar_arvore(pasta);
-
-    res.json({
-      ok: true,
-      projeto: novoProjeto,
-      pasta,
-      arvore,
-      conversas: [],
-      historico: []
+    // Configurar SSE para progresso em tempo real
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
     });
+
+    const enviarProgresso = (dados) => {
+      res.write(`data: ${JSON.stringify(dados)}\n\n`);
+    };
+
+    const criador = new CriadorProjeto(nomeProjeto, pastaAgentes, enviarProgresso);
+    
+    enviarProgresso({
+      etapa: "inicio",
+      status: "iniciando",
+      detalhes: { mensagem: `Iniciando criação do projeto ${nomeProjeto}...` }
+    });
+
+    const resultado = await criador.criarProjetoCompleto();
+    
+    if (resultado.sucesso) {
+      // Criar registro no banco de dados
+      const projetoId = criarProjeto(nomeProjeto, "", resultado.caminho, "main");
+      registrarHistorico(projetoId, "projeto_criado", "Projeto React criado com preview");
+
+      enviarProgresso({
+        etapa: "finalizado",
+        status: "concluido",
+        detalhes: {
+          mensagem: "Projeto criado com sucesso!",
+          projetoId,
+          caminho: resultado.caminho,
+          servidor: resultado.servidor
+        }
+      });
+    } else {
+      enviarProgresso({
+        etapa: "erro",
+        status: "erro",
+        detalhes: {
+          mensagem: "Erro ao criar projeto",
+          erro: resultado.erro
+        }
+      });
+    }
+
+    res.end();
   } catch (e) {
-    res.status(500).json({ erro: String(e?.message || e) });
+    res.write(`data: ${JSON.stringify({
+      etapa: "erro",
+      status: "erro", 
+      detalhes: { mensagem: "Erro interno", erro: String(e?.message || e) }
+    })}\n\n`);
+    res.end();
   }
 });
 

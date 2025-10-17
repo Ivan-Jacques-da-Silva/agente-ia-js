@@ -1,0 +1,202 @@
+.App {
+  text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.App-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 40px 20px;
+  color: white;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.logo-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 40px;
+  animation: fadeInDown 1s ease-out;
+}
+
+.logo {
+  font-size: 4rem;
+  margin-bottom: 20px;
+  animation: spin 20s linear infinite;
+}
+
+.logo-container h1 {
+  font-size: 2.5rem;
+  margin: 0;
+  color: #ffffff;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.content {
+  max-width: 800px;
+  width: 100%;
+}
+
+.welcome-message {
+  font-size: 1.3rem;
+  margin-bottom: 30px;
+  color: #f0f0f0;
+  animation: fadeIn 1.5s ease-out;
+}
+
+.counter-section {
+  margin: 40px 0;
+}
+
+.counter-button {
+  background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+  border: none;
+  color: white;
+  padding: 15px 30px;
+  font-size: 1.1rem;
+  border-radius: 50px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  font-weight: 600;
+}
+
+.counter-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+  background: linear-gradient(45deg, #ee5a24, #ff6b6b);
+}
+
+.counter-button:active {
+  transform: translateY(0);
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin: 50px 0;
+}
+
+.feature-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 15px;
+  padding: 25px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: transform 0.3s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-5px);
+}
+
+.feature-card h3 {
+  margin: 0 0 15px 0;
+  font-size: 1.3rem;
+  color: #ffffff;
+}
+
+.feature-card p {
+  margin: 0;
+  color: #e0e0e0;
+  line-height: 1.5;
+}
+
+.getting-started {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 15px;
+  padding: 30px;
+  margin-top: 40px;
+  text-align: left;
+}
+
+.getting-started h2 {
+  color: #61dafb;
+  margin-top: 0;
+  text-align: center;
+}
+
+.getting-started ul {
+  list-style: none;
+  padding: 0;
+}
+
+.getting-started li {
+  margin: 15px 0;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f0f0f0;
+}
+
+.getting-started li:last-child {
+  border-bottom: none;
+}
+
+.getting-started code {
+  background-color: rgba(0, 0, 0, 0.3);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  color: #61dafb;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .App-header {
+    padding: 20px 15px;
+  }
+  
+  .logo-container h1 {
+    font-size: 2rem;
+  }
+  
+  .welcome-message {
+    font-size: 1.1rem;
+  }
+  
+  .features {
+    grid-template-columns: 1fr;
+  }
+  
+  .getting-started {
+    padding: 20px;
+  }
+}

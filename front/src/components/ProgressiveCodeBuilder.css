@@ -1,0 +1,228 @@
+.progressive-code-builder {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.builder-header {
+  background: #2d2d30;
+  padding: 12px 16px;
+  border-bottom: 1px solid #3e3e42;
+}
+
+.build-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.current-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.file-icon {
+  font-size: 16px;
+}
+
+.file-name {
+  color: #569cd6;
+}
+
+.typing-indicator {
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.build-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progress-bar {
+  width: 200px;
+  height: 6px;
+  background: #3e3e42;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
+  transition: width 0.3s ease;
+  border-radius: 3px;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: #cccccc;
+  min-width: 35px;
+}
+
+.code-container {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+}
+
+.code-editor {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: #1e1e1e;
+}
+
+.line-numbers {
+  background: #252526;
+  color: #858585;
+  padding: 16px 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid #3e3e42;
+  min-width: 50px;
+}
+
+.line-number {
+  height: 19.5px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.code-content {
+  flex: 1;
+  padding: 16px;
+  overflow: auto;
+}
+
+.code-content pre {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.code-content code {
+  color: #d4d4d4;
+  font-family: inherit;
+}
+
+.cursor {
+  background: #ffffff;
+  color: #1e1e1e;
+  animation: blink 1s infinite;
+  padding: 0 1px;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.builder-footer {
+  background: #2d2d30;
+  padding: 8px 16px;
+  border-top: 1px solid #3e3e42;
+}
+
+.build-status {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-building {
+  color: #ffa500;
+  animation: pulse 2s infinite;
+}
+
+.status-ready {
+  color: #4caf50;
+}
+
+/* Syntax highlighting básico */
+.code-content code {
+  color: #d4d4d4;
+}
+
+/* Simulação de syntax highlighting */
+.code-content pre:has-text("import") {
+  color: #c586c0;
+}
+
+.code-content pre:has-text("function") {
+  color: #569cd6;
+}
+
+.code-content pre:has-text("const") {
+  color: #569cd6;
+}
+
+.code-content pre:has-text("return") {
+  color: #c586c0;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+  .build-info {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  
+  .progress-bar {
+    width: 150px;
+  }
+  
+  .code-editor {
+    font-size: 12px;
+  }
+  
+  .line-numbers {
+    min-width: 40px;
+    padding: 16px 6px;
+  }
+}
+
+/* Scrollbar customizada */
+.code-editor::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.code-editor::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.code-editor::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: 6px;
+}
+
+.code-editor::-webkit-scrollbar-thumb:hover {
+  background: #4f4f4f;
+}
+
+.code-editor::-webkit-scrollbar-corner {
+  background: #1e1e1e;
+}

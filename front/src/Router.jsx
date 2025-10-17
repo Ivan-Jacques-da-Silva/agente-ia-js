@@ -1,7 +1,8 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Landing from './landing.jsx';
-import VSCodeLayout from './components/VSCodeLayout.jsx';
+import IDELayout from './components/IDELayout.jsx';
+import AgenticInterface from './components/AgenticInterface.jsx';
 
 export default function Router({ 
   // Props para Landing
@@ -28,6 +29,11 @@ export default function Router({
   onToggleTema,
   conversas,
   mensagemAtual,
+  
+  // Props para construção progressiva
+  isBuilding,
+  buildData,
+  onBuildComplete,
   onEnviarMensagem,
   onSetMensagemAtual,
   loading,
@@ -37,12 +43,48 @@ export default function Router({
   abaAtiva,
   onSelecionarAba,
   onFecharAba,
-  onAtualizarConteudo
+  onAtualizarConteudo,
+  
+  // Props para interface agentic
+  onCloseAgentic
 }) {
   return (
     <Routes>
       <Route 
         path="/" 
+        element={
+          <IDELayout
+            currentProject={projeto}
+            fileTree={arquivos}
+            openTabs={abas}
+            activeTab={abaAtiva}
+            fileContents={conteudoArquivo}
+            chatMessages={conversas}
+            isLoading={loading}
+            theme={tema}
+            projects={projetos}
+            isBuilding={isBuilding}
+            buildData={buildData}
+            onOpenFolder={onAbrirPasta}
+            onCreateProject={onCriarDoZero}
+            onCloneRepository={onImportarGitHub}
+            onDeleteProject={onDeletarProjeto}
+            onFileSelect={onSelecionarArquivo}
+            onFileChange={onSalvarArquivo}
+            onTabClose={onFecharAba}
+            onTabSwitch={onSelecionarAba}
+            onSendMessage={onEnviarMensagem}
+            onThemeToggle={onToggleTema}
+            onBuildComplete={onBuildComplete}
+            onCreateFile={onCriarArquivo}
+            onCreateFolder={onCriarPasta}
+            onDeleteFile={() => {}}
+            onRenameFile={onRenomearArquivo}
+          />
+        } 
+      />
+      <Route 
+        path="/landing" 
         element={
           <Landing 
             onImportarGitHub={onImportarGitHub}
@@ -58,36 +100,46 @@ export default function Router({
         path="/projeto/:id" 
         element={
           projeto ? (
-            <VSCodeLayout
-              projeto={projeto}
-              arquivos={arquivos}
-              arquivoAtual={arquivoAtual}
-              conteudoArquivo={conteudoArquivo}
-              onSelecionarArquivo={onSelecionarArquivo}
-              onSalvarArquivo={onSalvarArquivo}
-              onCriarArquivo={onCriarArquivo}
-              onCriarPasta={onCriarPasta}
-              onRenomearArquivo={onRenomearArquivo}
-              onDownloadArquivo={onDownloadArquivo}
-              onAbrirPasta={onAbrirPasta}
-              tema={tema}
-              onToggleTema={onToggleTema}
-              conversas={conversas}
-              mensagemAtual={mensagemAtual}
-              onEnviarMensagem={onEnviarMensagem}
-              onSetMensagemAtual={onSetMensagemAtual}
-              loading={loading}
-              mudancasPendentes={mudancasPendentes}
-              onCommitPush={onCommitPush}
-              abas={abas}
-              abaAtiva={abaAtiva}
-              onSelecionarAba={onSelecionarAba}
-              onFecharAba={onFecharAba}
-              onAtualizarConteudo={onAtualizarConteudo}
+            <IDELayout
+              currentProject={projeto}
+              fileTree={arquivos}
+              openTabs={abas}
+              activeTab={abaAtiva}
+              fileContents={conteudoArquivo}
+              chatMessages={conversas}
+              isLoading={loading}
+              theme={tema}
+              projects={projetos}
+              isBuilding={isBuilding}
+              buildData={buildData}
+              onOpenFolder={onAbrirPasta}
+              onCreateProject={onCriarDoZero}
+              onCloneRepository={onImportarGitHub}
+              onDeleteProject={onDeletarProjeto}
+              onFileSelect={onSelecionarArquivo}
+              onFileChange={onSalvarArquivo}
+              onTabClose={onFecharAba}
+              onTabSwitch={onSelecionarAba}
+              onSendMessage={onEnviarMensagem}
+              onThemeToggle={onToggleTema}
+              onBuildComplete={onBuildComplete}
+              onCreateFile={onCriarArquivo}
+              onCreateFolder={onCriarPasta}
+              onDeleteFile={() => {}}
+              onRenameFile={onRenomearArquivo}
             />
           ) : (
             <Navigate to="/" replace />
           )
+        } 
+      />
+      <Route 
+        path="/agentic/:projectId" 
+        element={
+          <AgenticInterface
+            projectId={window.location.pathname.split('/')[2]}
+            onClose={onCloseAgentic}
+          />
         } 
       />
       <Route path="*" element={<Navigate to="/" replace />} />

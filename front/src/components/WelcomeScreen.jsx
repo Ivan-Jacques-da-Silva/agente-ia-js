@@ -6,11 +6,14 @@ export function WelcomeScreen({
   onOpenFolder, 
   onCreateProject, 
   onCloneRepository,
-  recentProjects = [] 
+  recentProjects = [],
+  onDeleteProject
 }) {
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const projectsPerPage = 10;
 
   const handleOpenFolder = () => {
     setShowFolderPicker(true);
@@ -39,8 +42,22 @@ export function WelcomeScreen({
     onCloneRepository?.(repoData);
   };
 
+  // Calcular projetos para a página atual
+  const totalPages = Math.ceil(recentProjects.length / projectsPerPage);
+  const startIndex = (currentPage - 1) * projectsPerPage;
+  const endIndex = startIndex + projectsPerPage;
+  const currentProjects = recentProjects.slice(startIndex, endIndex);
+
+  const handleDeleteProject = (project, event) => {
+    event.stopPropagation();
+    if (window.confirm(`Tem certeza que deseja excluir o projeto "${project.nome || project.name}"?`)) {
+      onDeleteProject?.(project);
+    }
+  };
+
   return (
     <div className="welcome-screen">
+      <div className="welcome-gradient" />
       <div className="welcome-content">
         <div className="welcome-header">
           <div className="logo-section">
@@ -97,27 +114,79 @@ export function WelcomeScreen({
 
           {recentProjects.length > 0 && (
             <div className="recent-projects">
-              <h2>Projetos Recentes</h2>
-              <div className="recent-list">
-                {recentProjects.slice(0, 5).map((project, index) => (
+              <div className="projects-header">
+                <h2>Projetos ({recentProjects.length})</h2>
+                {totalPages > 1 && (
+                  <div className="pagination-info">
+                    Página {currentPage} de {totalPages}
+                  </div>
+                )}
+              </div>
+              <div className="projects-grid">
+                {currentProjects.map((project, index) => (
                   <div 
-                    key={index}
-                    className="recent-item"
+                    key={project.id || index}
+                    className="project-card"
                     onClick={() => onOpenFolder?.(project)}
                   >
-                    <div className="recent-icon">
-                      <i className="fas fa-folder"></i>
+                    <div className="project-header">
+                      <div className="project-icon">
+                        <i className="fas fa-folder"></i>
+                      </div>
+                      <button 
+                        className="delete-btn"
+                        onClick={(e) => handleDeleteProject(project, e)}
+                        title="Excluir projeto"
+                      >
+                        <i className="fas fa-trash"></i>
+                      </button>
                     </div>
-                    <div className="recent-info">
-                      <div className="recent-name">{project.name}</div>
-                      <div className="recent-path">{project.path}</div>
-                    </div>
-                    <div className="recent-date">
-                      {new Date(project.lastOpened).toLocaleDateString()}
+                    <div className="project-info">
+                      <div className="project-name">{project.nome || project.name}</div>
+                      <div className="project-path">{project.caminho_local || project.path}</div>
+                      <div className="project-date">
+                        {project.ultimo_acesso 
+                          ? new Date(project.ultimo_acesso).toLocaleDateString('pt-BR')
+                          : project.lastOpened 
+                            ? new Date(project.lastOpened).toLocaleDateString('pt-BR')
+                            : 'Data não disponível'
+                        }
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
+              {totalPages > 1 && (
+                <div className="pagination">
+                  <button 
+                    className="pagination-btn"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <i className="fas fa-chevron-left"></i>
+                    Anterior
+                  </button>
+                  <div className="pagination-pages">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                      <button
+                        key={page}
+                        className={`pagination-page ${page === currentPage ? 'active' : ''}`}
+                        onClick={() => setCurrentPage(page)}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  </div>
+                  <button 
+                    className="pagination-btn"
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Próxima
+                    <i className="fas fa-chevron-right"></i>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

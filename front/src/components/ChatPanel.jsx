@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { FaComments, FaPlus, FaTimes, FaRobot, FaFolder, FaHandPaper, FaClock, FaArrowRight } from 'react-icons/fa';
 import './ChatPanel.css';
 
 const ChatPanel = ({ 
@@ -84,23 +85,23 @@ const ChatPanel = ({
     <div className="chat-panel">
       <div className="chat-header">
         <div className="chat-title">
-          <span className="chat-icon">💬</span>
-          <span>Chat com Agente IA</span>
-        </div>
+              <span className="chat-icon">💬</span>
+              <span>Chat com Agente IA</span>
+            </div>
         <div className="chat-actions">
           <button 
             className="chat-action-btn"
             onClick={() => {/* Nova conversa */}}
             title="Nova conversa"
           >
-            ➕
+            <FaPlus />
           </button>
           <button 
             className="chat-action-btn"
             onClick={onToggle}
             title="Fechar chat"
           >
-            ✕
+            <FaTimes />
           </button>
         </div>
       </div>
@@ -108,21 +109,21 @@ const ChatPanel = ({
       {!currentProject ? (
         <div className="chat-empty-state">
           <div className="empty-icon">🤖</div>
-          <h3>Nenhum projeto aberto</h3>
+          <h3>Chat com Agente IA</h3>
           <p>Abra uma pasta ou crie um novo projeto para começar a conversar com o agente.</p>
         </div>
       ) : (
         <>
           <div className="chat-project-info">
-            <span className="project-icon">📁</span>
-            <span className="project-name">{currentProject.nome}</span>
+            <span className="project-icon"><FaFolder /></span>
+            <span className="project-name">{currentProject.nome || 'Projeto'}</span>
           </div>
 
           <div className="chat-messages">
             {chatMessages.length === 0 ? (
               <div className="chat-welcome">
                 <div className="welcome-icon">👋</div>
-                <h4>Olá! Como posso ajudar?</h4>
+                <h4>Olá! O que posso te ajudar hoje?</h4>
                 <p>Você pode me pedir para:</p>
                 <ul>
                   <li>Analisar e explicar código</li>
@@ -172,7 +173,7 @@ const ChatPanel = ({
                 className="send-button"
                 title="Enviar mensagem"
               >
-                {isLoading ? '⏳' : '➤'}
+                {isLoading ? <FaClock /> : <FaArrowRight />}
               </button>
             </div>
             <div className="chat-input-hint">

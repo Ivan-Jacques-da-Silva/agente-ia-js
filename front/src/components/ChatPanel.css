@@ -229,6 +229,98 @@
   margin: 0;
 }
 
+/* Thinking Messages */
+.chat-message.thinking {
+  background: rgba(139, 92, 246, 0.1);
+  border-left: 3px solid var(--primary-color);
+  margin: 8px 0;
+}
+
+.chat-message.thinking .message-content {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.thinking-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.thinking-status.running {
+  color: #fbbf24;
+}
+
+.thinking-status.completed {
+  color: #10b981;
+}
+
+.thinking-status.error {
+  color: #ef4444;
+}
+
+.thinking-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(251, 191, 36, 0.3);
+  border-top-color: #fbbf24;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.thinking-details {
+  margin-top: 6px;
+  padding-left: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.thinking-details ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.thinking-details li {
+  margin: 2px 0;
+}
+
+/* Agent questions styles */
+.agent-questions {
+  background-color: #2d2d30;
+  border-left: 3px solid #ff9800;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.questions-content {
+  white-space: pre-line;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.questions-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-answer-questions {
+  background-color: #ff9800;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.btn-answer-questions:hover {
+  background-color: #f57c00;
+}
+
 /* Loading Animation */
 .chat-message.loading .message-content {
   background: var(--vscode-input-background);

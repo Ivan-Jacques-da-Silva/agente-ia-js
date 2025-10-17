@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import Landing from "./landing.jsx";
-import VSCodeLayout from "./components/VSCodeLayout.jsx";
+import { useNavigate } from "react-router-dom";
+import Router from "./Router.jsx";
 import { enviarChatComStreaming } from "./chat-utils.js";
+import { ProjectCreationModal } from './components/ProjectCreationModal';
 import "./app.css";
 
 const ORIGIN = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
@@ -73,10 +74,11 @@ function buildTree(list) {
     
     parts.forEach((part, index) => {
       if (!current[part]) {
+        const isDirectory = index < parts.length - 1 || item.endsWith('/');
         current[part] = {
           name: part,
-          fullPath: parts.slice(0, index + 1).join('/'),
-          isDirectory: index < parts.length - 1,
+          path: parts.slice(0, index + 1).join('/'),
+          type: isDirectory ? 'folder' : 'file',
           children: {}
         };
       }
@@ -87,7 +89,7 @@ function buildTree(list) {
   function convertToArray(obj) {
     return Object.values(obj).map(item => ({
       ...item,
-      children: item.isDirectory ? convertToArray(item.children) : undefined
+      children: item.type === 'folder' ? convertToArray(item.children) : undefined
     }));
   }
   
@@ -205,6 +207,7 @@ function formatTimestamp(timestamp) {
 }
 
 export default function App() {
+  const navigate = useNavigate();
   const { base: agenteUrl, status: agenteStatus } = useEndpointResolver(AGENTE_CANDIDATES, "/saude");
 
   const [repo, setRepo] = useState("");
@@ -262,6 +265,12 @@ export default function App() {
   const [executarProvisionamento, setExecutarProvisionamento] = useState(false);
   const [progressoProvisionamento, setProgressoProvisionamento] = useState(null);
   const [projetos, setProjetos] = useState([]);
+  const [showProjectCreationModal, setShowProjectCreationModal] = useState(false);
+  const [projectCreationName, setProjectCreationName] = useState('');
+  
+  // Estados para construção progressiva
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [buildData, setBuildData] = useState(null);
 
   const requireAgentReady = useCallback(() => {
     if (agenteStatus !== "ready") {
@@ -370,6 +379,20 @@ export default function App() {
     });
   }
 
+  async function clonarRepositorioGitHub() {
+    const url = prompt('Digite a URL do repositório GitHub:');
+    if (!url) return;
+    
+    // Validar URL do GitHub
+    const githubUrlPattern = /^https:\/\/github\.com\/[\w\-\.]+\/[\w\-\.]+(?:\.git)?$/;
+    if (!githubUrlPattern.test(url.trim())) {
+      alert('Por favor, digite uma URL válida do GitHub (ex: https://github.com/usuario/repositorio)');
+      return;
+    }
+    
+    await abrirRepoDireto(url);
+  }
+
   async function abrirRepoDireto(url) {
     setRepoUrl(url);
     setRepo("");
@@ -391,6 +414,9 @@ export default function App() {
           setMostrarLandingForcado(false);
           setErro("");
           
+          // Navegar para a tela do projeto
+          navigate(`/projeto/${projeto.id}`);
+          
           // Carregar árvore de arquivos
           const treeResponse = await fetch(buildUrl(agenteUrl, `/repo/tree?projeto=${projeto.id}`));
           const treeData = await parseJsonResponse(treeResponse, "Erro ao carregar árvore de arquivos");
@@ -408,51 +434,10 @@ export default function App() {
 
   async function criarProjetoDoZero(promptInicial) {
     console.log("criarProjetoDoZero chamada com:", promptInicial);
-    console.log("agenteStatus:", agenteStatus);
-    console.log("agenteUrl:", agenteUrl);
     
-    if (!requireAgentReady()) {
-      console.log("requireAgentReady retornou false");
-      return;
-    }
-
-    await runWithLoading("Criando projeto...", async () => {
-      try {
-        console.log("Enviando requisição para criar projeto...");
-        const response = await fetch(buildUrl(agenteUrl, "/projeto/criar"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            nome: `Projeto ${Date.now()}`,
-            descricao: promptInicial || "Projeto criado do zero"
-          }),
-        });
-
-        console.log("Resposta recebida:", response.status);
-        const data = await parseJsonResponse(response, "Erro ao criar projeto");
-        console.log("Dados da resposta:", data);
-        
-        if (data.success) {
-          setProjetoAtual(data.projeto);
-          setArvoreAtual(data.arvore || []);
-          setMostrarLandingForcado(false);
-          setErro("");
-          
-          // Se há prompt inicial, enviar para o chat
-          if (promptInicial) {
-            console.log("Enviando prompt inicial para o chat:", promptInicial);
-            setEntradaChat(promptInicial);
-            await enviar_chat(promptInicial);
-          }
-        } else {
-          console.log("Erro na resposta:", data.message);
-          setErro(data.message || "Erro ao criar projeto");
-        }
-      } catch (error) {
-        console.error("Erro ao criar projeto:", error);
-        setErro("Erro de conexão ao criar projeto");
-      }
-    });
+    // Abrir o modal de criação de projeto
+    setProjectCreationName(`Projeto ${Date.now()}`);
+    setShowProjectCreationModal(true);
   }
 
   async function abrir_arquivo(p) {
@@ -614,7 +599,80 @@ export default function App() {
   }
 
   async function enviar_chat(texto) {
-    if (!requireAgentReady() || !projetoAtual?.id) return;
+    console.log("enviar_chat chamado com:", texto);
+    if (!requireAgentReady()) return;
+
+    // Detectar comandos que devem ativar o agente autônomo
+    const comandosAgenticos = [
+      'crie uma lp',
+      'crie uma landing page',
+      'criar landing page',
+      'criar lp',
+      'gerar landing page',
+      'fazer uma lp',
+      'construir landing page',
+      'desenvolver aplicação',
+      'criar aplicativo',
+      'fazer um site',
+      'construir sistema',
+      'desenvolver projeto'
+    ];
+    
+    const deveUsarAgente = comandosAgenticos.some(cmd => 
+      texto.toLowerCase().includes(cmd)
+    );
+
+    console.log("Deve usar agente:", deveUsarAgente);
+
+    if (deveUsarAgente) {
+      // Se não há projeto aberto, criar um novo automaticamente
+      if (!projetoAtual?.id) {
+        try {
+          console.log("Criando novo projeto automaticamente...");
+          setLoading(true);
+          setLoadingMessage("Criando novo projeto...");
+          
+          const response = await fetch(buildUrl(agenteUrl, "/projeto/criar"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nome: `Projeto ${Date.now()}`,
+              descricao: texto
+            })
+          });
+          
+          const data = await parseJsonResponse(response, "Erro ao criar projeto");
+          console.log("Resposta da criação do projeto:", data);
+          
+          if (data.success) {
+            // Navegar para o novo projeto na interface agentic
+            console.log("Navegando para:", `/agentic/${data.projeto.id}`);
+            navigate(`/agentic/${data.projeto.id}`);
+            return;
+          } else {
+            setErro("Erro ao criar projeto automaticamente");
+            setLoading(false);
+            return;
+          }
+        } catch (error) {
+          console.error("Erro ao criar projeto:", error);
+          setErro("Erro ao criar projeto: " + error.message);
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Ir direto para interface agentic com projeto existente
+        console.log("Navegando para projeto existente:", `/agentic/${projetoAtual.id}`);
+        navigate(`/agentic/${projetoAtual.id}`);
+        return;
+      }
+    }
+
+    // Para chat normal, ainda precisa de projeto aberto
+    if (!projetoAtual?.id) {
+      setErro("Abra um projeto ou use comandos como 'criar uma landing page' para começar");
+      return;
+    }
 
     const mensagemUsuario = createMessage('user', texto, { attachments: [] });
     
@@ -644,6 +702,20 @@ export default function App() {
           // onCompleto
           setLoading(false);
           carregarMudancasPendentes();
+          
+          // Se a resposta contém perguntas, adicionar mensagem especial
+          if (data.needsQuestions) {
+            setChatMessages(prev => {
+              const lastMessage = prev[prev.length - 1];
+              if (lastMessage && lastMessage.role === 'assistant') {
+                return prev.slice(0, -1).concat([{
+                  ...lastMessage,
+                  needsQuestions: true
+                }]);
+              }
+              return prev;
+            });
+          }
         },
         (mensagemErro) => {
           // onErro
@@ -653,6 +725,30 @@ export default function App() {
         (pensamento) => {
           // onPensamento - pode ser usado para mostrar o que o agente está pensando
           console.log("Pensamento do agente:", pensamento);
+          
+          // Adicionar pensamento como uma mensagem especial no chat
+          setChatMessages(prev => {
+            const lastMessage = prev[prev.length - 1];
+            if (lastMessage && lastMessage.role === 'assistant' && lastMessage.isThinking) {
+              // Atualizar pensamento existente
+              return prev.slice(0, -1).concat([{
+                ...lastMessage,
+                content: pensamento.text,
+                status: pensamento.status,
+                details: pensamento.details || []
+              }]);
+            } else {
+              // Criar nova mensagem de pensamento
+              return prev.concat([{
+                role: 'assistant',
+                content: pensamento.text,
+                timestamp: Date.now(),
+                isThinking: true,
+                status: pensamento.status,
+                details: pensamento.details || []
+              }]);
+            }
+          });
         }
       );
     } catch (error) {
@@ -723,6 +819,97 @@ export default function App() {
       }
       return novasSessions;
     });
+  }
+
+  async function abrirPastaLocal(folderData = null) {
+    try {
+      let projeto, files;
+      
+      if (folderData) {
+        // Dados vindos do FolderPicker
+        files = Object.keys(folderData.structure).map(name => {
+          const item = folderData.structure[name];
+          return item.type === 'directory' ? `${name}/` : name;
+        });
+        
+        // Função recursiva para extrair todos os arquivos da estrutura
+        function extractFiles(structure, basePath = '') {
+          const result = [];
+          Object.entries(structure).forEach(([name, item]) => {
+            const fullPath = basePath ? `${basePath}/${name}` : name;
+            if (item.type === 'directory') {
+              result.push(`${fullPath}/`);
+              if (item.children) {
+                result.push(...extractFiles(item.children, fullPath));
+              }
+            } else {
+              result.push(fullPath);
+            }
+          });
+          return result;
+        }
+        
+        files = extractFiles(folderData.structure);
+        
+        projeto = {
+          id: `local_${Date.now()}`,
+          name: folderData.name,
+          type: 'local',
+          path: folderData.path,
+          folderData: folderData
+        };
+      } else {
+        // Verificar se a API File System Access está disponível
+        if (!window.showDirectoryPicker) {
+          alert('Seu navegador não suporta a seleção de pastas. Use Chrome/Edge mais recente.');
+          return;
+        }
+
+        // Abrir o seletor de pasta
+        const directoryHandle = await window.showDirectoryPicker();
+        
+        // Ler o conteúdo da pasta
+        files = [];
+        
+        async function readDirectory(dirHandle, path = '') {
+          for await (const [name, handle] of dirHandle.entries()) {
+            const fullPath = path ? `${path}/${name}` : name;
+            
+            if (handle.kind === 'file') {
+              files.push(fullPath);
+            } else if (handle.kind === 'directory') {
+              files.push(`${fullPath}/`);
+              await readDirectory(handle, fullPath);
+            }
+          }
+        }
+        
+        await readDirectory(directoryHandle);
+        
+        projeto = {
+          id: `local_${Date.now()}`,
+          name: directoryHandle.name,
+          type: 'local',
+          path: directoryHandle.name,
+          directoryHandle: directoryHandle
+        };
+      }
+      
+      // Atualizar o estado
+      setProjetoAtual(projeto);
+      setArvoreAtual(buildTree(files));
+      setProjetos(prev => {
+        const filtered = prev.filter(p => p.type !== 'local' || p.name !== projeto.name);
+        return [...filtered, projeto];
+      });
+      setMostrarLandingForcado(false);
+      
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        console.error('Erro ao abrir pasta:', error);
+        setErro('Erro ao abrir pasta local');
+      }
+    }
   }
 
   function voltarParaInicio() {
@@ -849,41 +1036,80 @@ export default function App() {
   }, [requireAgentReady, projetoAtual, agenteUrl]);
 
   const enviarMensagem = useCallback((mensagem) => {
+    console.log("enviarMensagem chamado com:", mensagem);
     enviar_chat(mensagem);
   }, []);
 
-  if (mostrarLanding) {
-    return (
-      <Landing
-        onImportarGitHub={abrirRepoDireto}
+  const handleCloseAgentic = useCallback(() => {
+    // Voltar para a página do projeto
+    if (projetoAtual?.id) {
+      navigate(`/projeto/${projetoAtual.id}`);
+    } else {
+      navigate('/');
+    }
+  }, [navigate, projetoAtual]);
+
+  return (
+    <>
+      <Router
+        // Props para Landing
+        onImportarGitHub={clonarRepositorioGitHub}
         onCriarDoZero={criarProjetoDoZero}
         agenteStatus={agenteStatus}
         projetos={projetos}
         onAbrirProjeto={abrirProjetoExistente}
         onDeletarProjeto={deletarProjetoFrontend}
+        
+        // Props para AgenticInterface
+        onCloseAgentic={handleCloseAgentic}
+        
+        // Props para VSCodeLayout
+        projeto={projetoAtual}
+        arquivos={arquivos}
+        arquivoAtual={arquivoAtual}
+        conteudoArquivo={conteudoArquivo}
+        onSelecionarArquivo={selecionarArquivo}
+        onSalvarArquivo={salvarArquivo}
+        onCriarArquivo={criarArquivo}
+        onCriarPasta={criarPasta}
+        onRenomearArquivo={renomearArquivo}
+        onDownloadArquivo={downloadArquivo}
+        onAbrirPasta={abrirPastaLocal}
+        tema={tema}
+        onToggleTema={toggleTema}
+        conversas={conversas}
+        mensagemAtual={entradaChat}
+        onEnviarMensagem={enviarMensagem}
+        onSetMensagemAtual={setEntradaChat}
+        loading={loading}
+        mudancasPendentes={mudancasPendentes}
+        onCommitPush={commit_push}
+        abas={abas}
+        abaAtiva={abaAtiva}
+        onSelecionarAba={setAbaAtiva}
+        onFecharAba={fecharAba}
+        onAtualizarConteudo={atualizarConteudoAba}
+        isBuilding={isBuilding}
+        buildData={buildData}
+        onBuildComplete={() => {
+          setIsBuilding(false);
+          setBuildData(null);
+        }}
       />
-    );
-  }
-
-  return (
-    <VSCodeLayout
-      currentProject={projetoAtual}
-      fileTree={arquivos}
-      openTabs={abas}
-      activeTab={abaAtiva}
-      fileContents={conteudoArquivo}
-      chatMessages={conversas}
-      isLoading={loading}
-      theme={tema}
-      onOpenFolder={voltarParaInicio}
-      onCreateProject={criarProjetoDoZero}
-      onCloneRepository={abrirRepoDireto}
-      onFileSelect={selecionarArquivo}
-      onFileChange={atualizarConteudoAba}
-      onTabClose={fecharAba}
-      onTabSwitch={setAbaAtiva}
-      onSendMessage={enviarMensagem}
-      onThemeToggle={toggleTema}
-    />
+      
+      <ProjectCreationModal
+        isOpen={showProjectCreationModal}
+        onClose={() => setShowProjectCreationModal(false)}
+        projectName={projectCreationName}
+        onComplete={(projeto) => {
+          setShowProjectCreationModal(false);
+          setProjetoAtual(projeto);
+          setArvoreAtual(projeto.arvore || []);
+          setMostrarLandingForcado(false);
+          setErro("");
+          navigate(`/projeto/${projeto.id}`);
+        }}
+      />
+    </>
   );
 }
