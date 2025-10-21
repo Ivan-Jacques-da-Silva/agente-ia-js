@@ -21,6 +21,7 @@ import {
   FaArrowLeft,
   FaArrowRight
 } from 'react-icons/fa';
+import ChatPanel from './ChatPanel';
 import './IDELayout.css';
 
 export function IDELayout({
@@ -636,61 +637,14 @@ export function IDELayout({
       />
 
       {/* Chat Lateral Direito */}
-      <div 
-        className={`ide-chat ${isChatCollapsed ? 'collapsed' : ''}`}
-        style={{ width: isChatCollapsed ? '48px' : `${chatWidth}px` }}
-      >
-        <div className="chat-header">
-          <h3>Assistente IA</h3>
-          <button 
-            className="chat-collapse"
-            onClick={() => setIsChatCollapsed(!isChatCollapsed)}
-          >
-            {isChatCollapsed ? <FaChevronLeft /> : <FaChevronRight />}
-          </button>
-        </div>
-
-        {!isChatCollapsed && (
-          <>
-            <div className="chat-messages">
-              {chatMessages.map((message, index) => (
-                <div key={index} className={`message ${message.role}`}>
-                  <div className="message-content">{message.content}</div>
-                </div>
-              ))}
-              {isLoading && (
-                <div className="message assistant loading">
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <form onSubmit={handleChatSubmit} className="chat-input-form">
-              <textarea
-                ref={chatInputRef}
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Pergunte sobre seu código..."
-                className="chat-input"
-                rows={3}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleChatSubmit(e);
-                  }
-                }}
-              />
-              <button type="submit" className="chat-send" disabled={!chatInput.trim()}>
-                Enviar
-              </button>
-            </form>
-          </>
-        )}
-      </div>
+      <ChatPanel
+        isVisible={!isChatCollapsed}
+        onToggle={() => setIsChatCollapsed(!isChatCollapsed)}
+        currentProject={currentProject}
+        chatMessages={chatMessages}
+        onSendMessage={onSendMessage}
+        isLoading={isLoading}
+      />
     </div>
   );
 }
