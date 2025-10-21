@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Landing from './landing.jsx';
 import IDELayout from './components/IDELayout.jsx';
 import AgenticInterface from './components/AgenticInterface.jsx';
+import SecurityPanel from './components/SecurityPanel.jsx';
 
 export default function Router({ 
   // Props para Landing
@@ -48,6 +49,21 @@ export default function Router({
   // Props para interface agentic
   onCloseAgentic
 }) {
+  // Adaptadores para integrar abas (id) com IDELayout (usa path/conteúdo)
+  const activeTabPath = Array.isArray(abas)
+    ? (abas.find(a => a && a.id === abaAtiva)?.path || null)
+    : null;
+  const fileContentsMap = Array.isArray(abas)
+    ? Object.fromEntries(abas.filter(a => a && a.path != null).map(a => [a.path, a.conteudo ?? ""]))
+    : {};
+  const handleTabSwitchByPath = (path) => {
+    const aba = Array.isArray(abas) ? abas.find(a => a && a.path === path) : null;
+    if (aba && onSelecionarAba) onSelecionarAba(aba.id);
+  };
+  const handleTabCloseByPath = (path) => {
+    const aba = Array.isArray(abas) ? abas.find(a => a && a.path === path) : null;
+    if (aba && onFecharAba) onFecharAba(aba.id);
+  };
   return (
     <Routes>
       <Route 
@@ -57,8 +73,8 @@ export default function Router({
             currentProject={projeto}
             fileTree={arquivos}
             openTabs={abas}
-            activeTab={abaAtiva}
-            fileContents={conteudoArquivo}
+            activeTab={activeTabPath}
+            fileContents={fileContentsMap}
             chatMessages={conversas}
             isLoading={loading}
             theme={tema}
@@ -71,8 +87,8 @@ export default function Router({
             onDeleteProject={onDeletarProjeto}
             onFileSelect={onSelecionarArquivo}
             onFileChange={onSalvarArquivo}
-            onTabClose={onFecharAba}
-            onTabSwitch={onSelecionarAba}
+            onTabClose={handleTabCloseByPath}
+            onTabSwitch={handleTabSwitchByPath}
             onSendMessage={onEnviarMensagem}
             onThemeToggle={onToggleTema}
             onBuildComplete={onBuildComplete}
@@ -104,8 +120,8 @@ export default function Router({
               currentProject={projeto}
               fileTree={arquivos}
               openTabs={abas}
-              activeTab={abaAtiva}
-              fileContents={conteudoArquivo}
+              activeTab={activeTabPath}
+              fileContents={fileContentsMap}
               chatMessages={conversas}
               isLoading={loading}
               theme={tema}
@@ -118,8 +134,8 @@ export default function Router({
               onDeleteProject={onDeletarProjeto}
               onFileSelect={onSelecionarArquivo}
               onFileChange={onSalvarArquivo}
-              onTabClose={onFecharAba}
-              onTabSwitch={onSelecionarAba}
+              onTabClose={handleTabCloseByPath}
+              onTabSwitch={handleTabSwitchByPath}
               onSendMessage={onEnviarMensagem}
               onThemeToggle={onToggleTema}
               onBuildComplete={onBuildComplete}
@@ -141,6 +157,10 @@ export default function Router({
             onClose={onCloseAgentic}
           />
         } 
+      />
+      <Route 
+        path="/security" 
+        element={<SecurityPanel />} 
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

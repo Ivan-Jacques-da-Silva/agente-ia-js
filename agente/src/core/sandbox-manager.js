@@ -9,6 +9,7 @@ import { spawn } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { SecurityManager } from './security-manager.js';
 
 export class SandboxManager {
   constructor(projectId, onLog) {
@@ -18,6 +19,21 @@ export class SandboxManager {
     this.activeContainers = new Map();
     this.portMappings = new Map();
     this.nextPort = 3000;
+    
+    // Inicializar gerenciador de segurança
+    this.securityManager = new SecurityManager({
+      defaultTimeout: 30000,  // 30 segundos
+      maxTimeout: 300000      // 5 minutos
+    });
+    
+    // Escutar eventos de segurança
+    this.securityManager.on('command_timeout', (data) => {
+      this.log('security_timeout', `⏰ Timeout do comando: ${data.commandId}`);
+    });
+    
+    this.securityManager.on('command_blocked', (data) => {
+      this.log('security_blocked', `🚫 Comando bloqueado: ${data.command}`);
+    });
   }
 
   /**
@@ -78,8 +94,24 @@ export class SandboxManager {
   async executeInSandbox(command, options = {}) {
     this.log('command_start', `💻 Executando no sandbox: ${command}`);
     
+    // Validar comando com o SecurityManager
+    const validation = this.securityManager.validateCommand(command, options);
+    
+    if (!validation.allowed) {
+      const error = new Error(`Comando não permitido: ${validation.reason}`);
+      this.log('command_blocked', `🚫 ${error.message}`);
+      throw error;
+    }
+    
+    // Usar comando sanitizado
+    const sanitizedCommand = validation.sanitizedCommand;
+    const timeout = validation.timeout;
+    const commandId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    this.log('command_validated', `✅ Comando validado (timeout: ${timeout}ms): ${sanitizedCommand}`);
+    
     return new Promise((resolve, reject) => {
-      const process = spawn('cmd', ['/c', command], {
+      const process = spawn('cmd', ['/c', sanitizedCommand], {
         cwd: this.sandboxPath,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: {
@@ -92,6 +124,21 @@ export class SandboxManager {
 
       let stdout = '';
       let stderr = '';
+      let isResolved = false;
+
+      // Configurar timeout
+      const timeoutHandle = this.securityManager.createTimeout(commandId, timeout, (error) => {
+        if (!isResolved) {
+          isResolved = true;
+          process.kill('SIGTERM');
+          reject(error);
+        }
+      });
+
+      const cleanup = () => {
+        this.securityManager.clearTimeout(commandId);
+        this.activeContainers.delete(commandId);
+      };
 
       process.stdout.on('data', (data) => {
         const output = data.toString();
@@ -106,22 +153,36 @@ export class SandboxManager {
       });
 
       process.on('close', (code) => {
-        if (code === 0) {
-          this.log('command_success', `✅ Comando concluído: ${command}`);
-          resolve({ stdout, stderr, code });
-        } else {
-          this.log('command_failed', `❌ Comando falhou: ${command} (código: ${code})`);
-          reject(new Error(`Command failed with code ${code}: ${stderr}`));
+        if (!isResolved) {
+          isResolved = true;
+          cleanup();
+          
+          if (code === 0) {
+            this.log('command_success', `✅ Comando concluído: ${sanitizedCommand}`);
+            resolve({ stdout, stderr, code, commandId });
+          } else {
+            this.log('command_failed', `❌ Comando falhou: ${sanitizedCommand} (código: ${code})`);
+            reject(new Error(`Command failed with code ${code}: ${stderr}`));
+          }
         }
       });
 
       process.on('error', (error) => {
-        this.log('command_error', `❌ Erro no processo: ${error.message}`);
-        reject(error);
+        if (!isResolved) {
+          isResolved = true;
+          cleanup();
+          this.log('command_error', `❌ Erro no processo: ${error.message}`);
+          reject(error);
+        }
       });
 
       // Armazenar processo para controle
-      this.activeContainers.set(command, process);
+      this.activeContainers.set(commandId, {
+        process,
+        command: sanitizedCommand,
+        startTime: Date.now(),
+        timeout
+      });
     });
   }
 
@@ -198,7 +259,19 @@ export class SandboxManager {
           command = 'npm start';
       }
 
-      const process = spawn('cmd', ['/c', command], {
+      // Validar comando com SecurityManager
+      const validation = this.securityManager.validateCommand(command, { timeout: 60000 });
+      
+      if (!validation.allowed) {
+        const error = new Error(`Comando não permitido: ${validation.reason}`);
+        this.log('command_blocked', `🚫 ${error.message}`);
+        throw error;
+      }
+
+      const sanitizedCommand = validation.sanitizedCommand;
+      const commandId = `dev-server-${Date.now()}`;
+
+      const process = spawn('cmd', ['/c', sanitizedCommand], {
         cwd: this.sandboxPath,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: {
@@ -226,14 +299,20 @@ export class SandboxManager {
               serverStarted = true;
               clearTimeout(timeout);
               this.portMappings.set('dev-server', port);
-              this.activeContainers.set('dev-server', process);
+              this.activeContainers.set(commandId, {
+                process,
+                command: sanitizedCommand,
+                startTime: Date.now(),
+                type: 'dev-server'
+              });
               
               this.log('server_ready', `✅ Servidor pronto em http://localhost:${port}`);
               resolve({
                 success: true,
                 url: `http://localhost:${port}`,
                 port,
-                process
+                process,
+                commandId
               });
             }
           }
@@ -304,13 +383,21 @@ export class SandboxManager {
   async cleanup() {
     this.log('cleanup_start', '🧹 Limpando ambiente sandbox...');
     
+    // Limpar todos os timeouts ativos
+    this.securityManager.clearAllTimeouts();
+    
     // Parar todos os processos
-    for (const [name, process] of this.activeContainers) {
+    for (const [commandId, containerInfo] of this.activeContainers) {
       try {
-        process.kill();
-        this.log('process_killed', `🛑 Processo parado: ${name}`);
+        if (containerInfo.process) {
+          containerInfo.process.kill();
+        } else {
+          // Compatibilidade com formato antigo
+          containerInfo.kill();
+        }
+        this.log('process_killed', `🛑 Processo parado: ${commandId}`);
       } catch (error) {
-        this.log('process_error', `❌ Erro ao parar processo ${name}: ${error.message}`);
+        this.log('process_error', `❌ Erro ao parar processo ${commandId}: ${error.message}`);
       }
     }
     
@@ -330,12 +417,72 @@ export class SandboxManager {
    * Obtém status do sandbox
    */
   getStatus() {
+    const activeProcesses = Array.from(this.activeContainers.entries()).map(([commandId, info]) => ({
+      commandId,
+      command: info.command || 'unknown',
+      startTime: info.startTime || Date.now(),
+      timeout: info.timeout || 0,
+      type: info.type || 'command'
+    }));
+
     return {
       path: this.sandboxPath,
-      activeProcesses: Array.from(this.activeContainers.keys()),
+      activeProcesses,
       ports: Object.fromEntries(this.portMappings),
-      nextPort: this.nextPort
+      nextPort: this.nextPort,
+      security: this.securityManager.getStats()
     };
+  }
+
+  /**
+   * Mata processo específico
+   */
+  async killProcess(commandId) {
+    const containerInfo = this.activeContainers.get(commandId);
+    if (!containerInfo) {
+      return { success: false, error: 'Processo não encontrado' };
+    }
+
+    try {
+      if (containerInfo.process) {
+        containerInfo.process.kill();
+      } else {
+        containerInfo.kill();
+      }
+      
+      this.securityManager.clearTimeout(commandId);
+      this.activeContainers.delete(commandId);
+      
+      this.log('process_killed', `🛑 Processo ${commandId} parado manualmente`);
+      return { success: true };
+    } catch (error) {
+      this.log('process_error', `❌ Erro ao parar processo ${commandId}: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Configura SecurityManager
+   */
+  configureSecurityManager(config) {
+    this.securityManager.importConfig(config);
+    this.log('security_config', '🔒 Configuração de segurança atualizada');
+  }
+
+  /**
+   * Adiciona comando à allowlist
+   */
+  allowCommand(command) {
+    this.securityManager.allowCommand(command);
+    this.log('security_allow', `✅ Comando permitido: ${command}`);
+  }
+
+  /**
+   * Bloqueia comando
+   */
+  blockCommand(command) {
+    this.securityManager.blockCommand(command);
+    this.log('security_block', `🚫 Comando bloqueado: ${command}`);
   }
 
   /**

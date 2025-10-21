@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { FaComments, FaPlus, FaTimes, FaRobot, FaFolder, FaHandPaper, FaClock, FaArrowRight } from 'react-icons/fa';
+import { FaClock, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import Timeline from './Timeline';
 import './ChatPanel.css';
 
 const ChatPanel = ({ 
@@ -11,13 +12,11 @@ const ChatPanel = ({
   isLoading = false 
 }) => {
   const [message, setMessage] = useState('');
-  const [chatSessions, setChatSessions] = useState([]);
-  const [activeChatId, setActiveChatId] = useState(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
@@ -25,7 +24,7 @@ const ChatPanel = ({
   }, [chatMessages]);
 
   const handleSendMessage = async () => {
-    if (!message.trim() || isLoading || !currentProject) return;
+    if (!message.trim() || isLoading) return;
 
     const userMessage = {
       id: Date.now(),
@@ -34,13 +33,8 @@ const ChatPanel = ({
       timestamp: new Date().toISOString()
     };
 
-    // Limpa o input
     setMessage('');
-    
-    // Envia mensagem para o componente pai
-    if (onSendMessage) {
-      onSendMessage(userMessage);
-    }
+    onSendMessage?.(userMessage);
   };
 
   const handleKeyPress = (e) => {
@@ -58,18 +52,48 @@ const ChatPanel = ({
   };
 
   const renderMessage = (msg) => {
+    // Renderizar mensagem de progresso/etapas do agente com Timeline
+    if (msg.type === 'agent-progress') {
+      // Converter formato antigo para o novo formato da Timeline
+      const timelineSteps = msg.steps ? msg.steps.map((step, index) => ({
+        id: step.id || index,
+        title: step.title,
+        description: step.description,
+        status: step.status,
+        startTime: step.startTime || Date.now(),
+        endTime: step.endTime,
+        command: step.command,
+        details: step.details,
+        logs: step.logs,
+        output: step.output,
+        files: step.files
+      })) : [];
+
+      return (
+        <div className="chat-message agent-progress">
+          <Timeline 
+            steps={timelineSteps}
+            currentStep={msg.currentStep}
+            showTimestamps={true}
+            showDuration={true}
+            onStepClick={(stepId) => console.log('Step clicked:', stepId)}
+            className="chat-timeline"
+          />
+        </div>
+      );
+    }
+
+    // Renderizar mensagem normal
     return (
       <div key={msg.id} className={`chat-message ${msg.type}`}>
         <div className="message-header">
           <span className="message-author">
-            {msg.type === 'user' ? 'Você' : 'Agente IA'}
-          </span>
-          <span className="message-time">
-            {formatTimestamp(msg.timestamp)}
-          </span>
+           {msg.type === 'user' ? '👤 Você' : '🤖 Agente IA'}
+         </span>
+          <span className="message-time">{formatTimestamp(msg.timestamp)}</span>
         </div>
         <div className="message-content">
-          {msg.type === 'assistant' && msg.content.includes('```') ? (
+          {msg.type === 'assistant' && msg.content?.includes('```') ? (
             <pre className="code-block">{msg.content}</pre>
           ) : (
             <div className="message-text">{msg.content}</div>
@@ -79,111 +103,99 @@ const ChatPanel = ({
     );
   };
 
-  if (!isVisible) return null;
-
-  return (
-    <div className="chat-panel">
-      <div className="chat-header">
-        <div className="chat-title">
-              <span className="chat-icon">💬</span>
-              <span>Chat com Agente IA</span>
-            </div>
-        <div className="chat-actions">
-          <button 
-            className="chat-action-btn"
-            onClick={() => {/* Nova conversa */}}
-            title="Nova conversa"
-          >
-            <FaPlus />
-          </button>
-          <button 
-            className="chat-action-btn"
-            onClick={onToggle}
-            title="Fechar chat"
-          >
-            <FaTimes />
+  if (!isVisible) {
+    return (
+      <div className="ide-chat collapsed" style={{ width: '48px' }}>
+        <div className="chat-header">
+          <button className="chat-collapse" onClick={onToggle} title="Expandir chat">
+            <FaChevronLeft />
           </button>
         </div>
       </div>
+    );
+  }
 
-      {!currentProject ? (
-        <div className="chat-empty-state">
-          <div className="empty-icon">🤖</div>
-          <h3>Chat com Agente IA</h3>
-          <p>Abra uma pasta ou crie um novo projeto para começar a conversar com o agente.</p>
+  return (
+    <div className="ide-chat" style={{ width: '400px' }}>
+      <div className="chat-header">
+        <h3>Assistente IA</h3>
+        <button className="chat-collapse" onClick={onToggle} title="Recolher chat">
+          <FaChevronRight />
+        </button>
+      </div>
+
+      <div className="chat-panel-content">
+        {!currentProject && (
+          <div className="chat-empty-state">
+            <div className="empty-icon">🤖</div>
+            <h3>Chat com Agente IA</h3>
+            <p>
+              Dica: mesmo sem projeto aberto, você pode pedir
+              "crie uma landing page" que o agente cria um projeto automaticamente.
+            </p>
+          </div>
+        )}
+
+        <div className="chat-messages">
+          {chatMessages.length === 0 ? (
+            <div className="chat-welcome">
+              <div className="welcome-icon">💬</div>
+              <h4>Olá! O que posso te ajudar hoje?</h4>
+              <p>Você pode me pedir para:</p>
+              <ul>
+                <li>Analisar e explicar código</li>
+                <li>Criar novos arquivos</li>
+                <li>Refatorar código existente</li>
+                <li>Corrigir bugs</li>
+                <li>Implementar funcionalidades</li>
+              </ul>
+            </div>
+          ) : (
+            chatMessages.map(renderMessage)
+          )}
+
+          {isLoading && (
+            <div className="message assistant loading">
+              <div className="message-header">
+                <span className="message-author">Agente IA</span>
+              </div>
+              <div className="message-content">
+                <div className="typing-indicator">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
         </div>
-      ) : (
-        <>
-          <div className="chat-project-info">
-            <span className="project-icon"><FaFolder /></span>
-            <span className="project-name">{currentProject.nome || 'Projeto'}</span>
-          </div>
 
-          <div className="chat-messages">
-            {chatMessages.length === 0 ? (
-              <div className="chat-welcome">
-                <div className="welcome-icon">👋</div>
-                <h4>Olá! O que posso te ajudar hoje?</h4>
-                <p>Você pode me pedir para:</p>
-                <ul>
-                  <li>Analisar e explicar código</li>
-                  <li>Criar novos arquivos</li>
-                  <li>Refatorar código existente</li>
-                  <li>Corrigir bugs</li>
-                  <li>Implementar funcionalidades</li>
-                </ul>
-              </div>
-            ) : (
-              chatMessages.map(renderMessage)
-            )}
-            
-            {isLoading && (
-              <div className="chat-message assistant loading">
-                <div className="message-header">
-                  <span className="message-author">Agente IA</span>
-                </div>
-                <div className="message-content">
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            <div ref={messagesEndRef} />
-          </div>
-
-          <div className="chat-input-container">
-            <div className="chat-input-wrapper">
-              <textarea
-                ref={textareaRef}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Digite sua mensagem... (Enter para enviar, Shift+Enter para nova linha)"
-                className="chat-input"
-                rows="1"
-                disabled={isLoading}
-              />
-              <button
-                onClick={handleSendMessage}
-                disabled={!message.trim() || isLoading}
-                className="send-button"
-                title="Enviar mensagem"
-              >
-                {isLoading ? <FaClock /> : <FaArrowRight />}
-              </button>
-            </div>
-            <div className="chat-input-hint">
-              Use <kbd>Enter</kbd> para enviar, <kbd>Shift+Enter</kbd> para nova linha
-            </div>
-          </div>
-        </>
-      )}
+        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="chat-input-form">
+          <textarea
+            ref={textareaRef}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder={currentProject ? 'Pergunte sobre seu código...' : 'Descreva o que deseja construir...'}
+            className="chat-input"
+            rows="3"
+            disabled={isLoading}
+          />
+          <button
+            type="submit"
+            disabled={!message.trim() || isLoading}
+            className="chat-send"
+            title="Enviar mensagem"
+          >
+            {isLoading ? <FaClock /> : 'Enviar'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
 
 export default ChatPanel;
+

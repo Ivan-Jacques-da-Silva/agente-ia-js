@@ -1,0 +1,79 @@
+Objetivo
+
+Agente que planeja → cria projeto web → instala deps → edita arquivos → roda dev server → mostra terminal e preview em vídeo ao vivo → empacota e faz deploy.
+
+Arquitetura
+
+Orquestrador (fluxo agentic com memória curta e retries).
+
+Sandbox por tarefa (container rootless, limites de CPU/RAM/NET).
+
+Preview atrás de proxy com porta dinâmica.
+
+Captura ao vivo: Terminal + navegador em WebRTC (fallback HLS).
+
+Estados/artefatos: banco para tarefas/passos; storage para ZIPs, vídeos, screenshots; cache de dependências.
+
+Ferramentas do agente (contratos)
+
+planejar_tarefas(descricao)
+
+executar_comando(comando, timeout)
+
+editar_arquivo(caminho, conteudo|patch)
+
+ler_arquivo(caminho)
+
+abrir_preview(url) (navegador headless; validações básicas)
+
+gravar_tela(acao=iniciar|parar)
+
+avaliar_output(entrada=logs|prints) (decidir correções)
+
+publicar_artefato(tipo=zip|imagem_docker|deploy)
+
+Fluxo principal
+
+Receber pedido → planejar_tarefas.
+
+Criar sandbox → instalar deps → gerar arquivos → iniciar dev server.
+
+Ligar gravar_tela e abrir_preview.
+
+avaliar_output (erros de build/test) → corrigir e repetir se preciso.
+
+Entregar ZIP, link de preview, opção de deploy.
+
+UI/Experiência
+
+Painel com chat, timeline de passos, terminal ao vivo, player do preview.
+
+Ações: iniciar/pausar, reexecutar passo, baixar ZIP, deploy, ligar/desligar gravação.
+
+Indicadores: passo atual, consumo de recursos, status do sandbox.
+
+Segurança
+
+Allowlist de comandos, timeout por passo, quotas, isolamento por container.
+
+Mascarar segredos (.env), bloquear chamadas externas não autorizadas.
+
+Observabilidade
+
+Logs por passo/ferramenta, métricas (tempos, sucesso/erro), screenshots em falhas.
+
+Entrega/Implantação
+
+Endpoints: criar tarefa, acompanhar estado (SSE), negociar vídeo (WebRTC/HLS), listar/baixar artefatos, acionar deploy.
+
+Deploy em VPS com proxy TLS, processos gerenciados e backups de banco/storage.
+
+MVP obrigatório
+
+Suportar Vite/React e Next com Tailwind.
+
+Edição de arquivos, instalação, dev com preview.
+
+Streaming do terminal + preview em tempo real.
+
+Geração de ZIP e deploy simples via imagem container.

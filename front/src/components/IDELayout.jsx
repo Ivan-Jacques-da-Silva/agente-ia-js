@@ -19,9 +19,19 @@ import {
   FaDesktop,
   FaRedo,
   FaArrowLeft,
-  FaArrowRight
+  FaArrowRight,
+  FaShieldAlt,
+  FaPlay,
+  FaStop,
+  FaEllipsisV,
+  FaTrash,
+  FaEdit,
+  FaCopy,
+  FaCut,
+  FaPaste
 } from 'react-icons/fa';
 import ChatPanel from './ChatPanel';
+import SecurityPanel from './SecurityPanel';
 import './IDELayout.css';
 
 export function IDELayout({
@@ -156,7 +166,8 @@ export function IDELayout({
   // Handlers de arquivos
   const handleFileClick = (file) => {
     if (file.type === 'file') {
-      onFileSelect?.(file);
+      // Enviar o caminho do arquivo, conforme esperado pelo App
+      onFileSelect?.(file.path);
     } else {
       toggleFolder(file.path);
     }
@@ -276,30 +287,46 @@ export function IDELayout({
 
   // Renderização da árvore de arquivos
   const renderFileTree = (items, level = 0) => {
-    return items.map((item, index) => (
-      <div key={item.path || index} className="file-tree-item" style={{ paddingLeft: `${level * 16 + 8}px` }}>
-        <div
-          className={`file-tree-node ${item.type === 'file' ? 'file' : 'folder'} ${
-            activeTab === item.path ? 'active' : ''
-          }`}
-          onClick={() => handleFileClick(item)}
-        >
-          <span className="file-icon">
-          {item.type === 'folder' ? (
-            expandedFolders.has(item.path) ? <FaFolderOpen /> : <FaFolder />
-          ) : (
-            <FaFile />
-          )}
-        </span>
-          <span className="file-name">{item.name}</span>
-        </div>
-        {item.type === 'folder' && expandedFolders.has(item.path) && item.children && (
-          <div className="folder-children">
-            {renderFileTree(item.children, level + 1)}
+    return items.map((item, index) => {
+      const isExpanded = expandedFolders.has(item.path);
+      const hasChildren = item.type === 'folder' && item.children && item.children.length > 0;
+      
+      return (
+        <div key={item.path || index} className="file-tree-item">
+          <div
+            className={`file-tree-node ${item.type === 'file' ? 'file' : 'folder'} ${
+              activeTab === item.path ? 'active' : ''
+            }`}
+            style={{ paddingLeft: `${level * 16 + 8}px` }}
+            onClick={() => handleFileClick(item)}
+          >
+            <span className="file-icon">
+              {item.type === 'folder' ? (
+                <>
+                  <span className={`folder-chevron ${isExpanded ? 'expanded' : ''}`}>
+                    <FaChevronRight />
+                  </span>
+                  {isExpanded ? <FaFolderOpen /> : <FaFolder />}
+                </>
+              ) : (
+                <FaFile />
+              )}
+            </span>
+            <span className="file-name">{item.name}</span>
+            {item.type === 'folder' && !isExpanded && hasChildren && (
+              <span className="loading-indicator">
+                <i className="fas fa-spinner fa-spin"></i>
+              </span>
+            )}
           </div>
-        )}
-      </div>
-    ));
+          {item.type === 'folder' && isExpanded && hasChildren && (
+            <div className="folder-children">
+              {renderFileTree(item.children, level + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
   };
 
   return (
@@ -333,9 +360,16 @@ export function IDELayout({
             >
               <FaCodeBranch />
             </button>
+            <button
+              className={`sidebar-tab ${activeSidebarTab === 'security' ? 'active' : ''}`}
+              onClick={() => setActiveSidebarTab('security')}
+              title="Segurança"
+            >
+              <FaShieldAlt />
+            </button>
           </div>
           <div className="sidebar-actions">
-            <button className="action-btn" onClick={onOpenFolder} title="Abrir Pasta">
+            <button className="action-btn" onClick={() => onOpenFolder?.()} title="Abrir Pasta">
               <FaFolder />
             </button>
             <button className="action-btn" onClick={onCloneRepository} title="Clonar Repositório">
@@ -375,7 +409,7 @@ export function IDELayout({
                   ) : (
                     <div className="no-project">
                       <p>Nenhuma pasta aberta</p>
-                      <button onClick={onOpenFolder}>Abrir Pasta</button>
+                      <button onClick={() => onOpenFolder?.()}>Abrir Pasta</button>
                     </div>
                   )}
                 </div>
@@ -399,6 +433,12 @@ export function IDELayout({
                 <div className="git-status">
                   <p>Nenhuma alteração</p>
                 </div>
+              </div>
+            )}
+            
+            {activeSidebarTab === 'security' && (
+              <div className="security-panel-container">
+                <SecurityPanel />
               </div>
             )}
           </div>
@@ -628,23 +668,37 @@ export function IDELayout({
             </div>
           )}
         </div>
+
+        {/* Chat integrado na área principal para tablet */}
+        <div className="tablet-chat-container">
+          <ChatPanel
+            isVisible={!isChatCollapsed}
+            onToggle={() => setIsChatCollapsed(!isChatCollapsed)}
+            currentProject={currentProject}
+            chatMessages={chatMessages}
+            onSendMessage={onSendMessage}
+            isLoading={isLoading}
+          />
+        </div>
       </div>
 
-      {/* Divisor do Chat */}
+      {/* Divisor do Chat - apenas para desktop */}
       <div
-        className="resize-handle chat-resize"
+        className="resize-handle chat-resize desktop-only"
         onMouseDown={() => setIsResizingChat(true)}
       />
 
-      {/* Chat Lateral Direito */}
-      <ChatPanel
-        isVisible={!isChatCollapsed}
-        onToggle={() => setIsChatCollapsed(!isChatCollapsed)}
-        currentProject={currentProject}
-        chatMessages={chatMessages}
-        onSendMessage={onSendMessage}
-        isLoading={isLoading}
-      />
+      {/* Chat Lateral Direito - apenas para desktop */}
+      <div className="desktop-chat">
+        <ChatPanel
+          isVisible={!isChatCollapsed}
+          onToggle={() => setIsChatCollapsed(!isChatCollapsed)}
+          currentProject={currentProject}
+          chatMessages={chatMessages}
+          onSendMessage={onSendMessage}
+          isLoading={isLoading}
+        />
+      </div>
     </div>
   );
 }

@@ -289,6 +289,7 @@
   border-radius: 4px;
   transition: all 0.2s ease;
   user-select: none;
+  position: relative;
 }
 
 .file-tree-node:hover {
@@ -301,9 +302,26 @@
 }
 
 .file-icon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 14px;
-  width: 16px;
-  text-align: center;
+  min-width: 40px;
+}
+
+.folder-chevron {
+  font-size: 10px;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-chevron.expanded {
+  transform: rotate(90deg);
 }
 
 .file-name {
@@ -314,7 +332,25 @@
 }
 
 .folder-children {
-  margin-left: 16px;
+  border-left: 1px solid var(--border-color);
+  margin-left: 20px;
+  padding-left: 0;
+}
+
+.loading-indicator {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.loading-indicator i {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .no-project {
@@ -974,7 +1010,135 @@
 }
 
 /* Responsividade */
-@media (max-width: 1024px) {
+/* Tablet Layout - Sidebar lateral esquerda, chat abaixo do terminal */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .ide-layout {
+    display: flex;
+    flex-direction: row;
+    height: 100vh;
+    overflow: hidden;
+  }
+  
+  .ide-sidebar {
+    width: 280px !important;
+    height: 100vh;
+    min-height: auto;
+    max-height: none;
+    flex-shrink: 0;
+    order: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .sidebar-content {
+    flex: 1;
+    overflow-y: auto;
+  }
+  
+  .sidebar-actions {
+    flex-shrink: 0;
+    padding: 8px;
+    border-top: 1px solid var(--border-color);
+  }
+  
+  .ide-main {
+    flex: 1;
+    min-height: auto;
+    order: 2;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  
+  .main-content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .bottom-panel {
+    min-height: 180px !important;
+    max-height: 280px !important;
+    flex-shrink: 0;
+  }
+  
+  .bottom-content {
+    height: calc(100% - 40px);
+    overflow: hidden;
+  }
+  
+  .terminal-panel {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    gap: 8px;
+  }
+  
+  .terminal-output {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 120px;
+  }
+  
+  /* Chat integrado na área principal para tablet */
+  .tablet-chat-container {
+    display: block;
+    min-height: 220px;
+    max-height: 320px;
+    flex-shrink: 0;
+    margin-top: 8px;
+    border-top: 1px solid var(--border-color);
+  }
+  
+  /* Esconder chat desktop em tablet */
+  .desktop-chat {
+    display: none;
+  }
+  
+  .desktop-only {
+    display: none;
+  }
+  
+  .resize-handle.sidebar-resize {
+    cursor: ew-resize;
+    width: 4px;
+    background: var(--border-color);
+  }
+  
+  .resize-handle.sidebar-resize:hover {
+    background: var(--primary-color);
+  }
+  
+  .resize-handle.bottom-resize {
+    cursor: ns-resize;
+    height: 4px;
+    background: var(--border-color);
+  }
+  
+  .resize-handle.bottom-resize:hover {
+    background: var(--primary-color);
+  }
+}
+
+/* Desktop Layout */
+@media (min-width: 1025px) {
+  .tablet-chat-container {
+    display: none;
+  }
+  
+  .desktop-chat {
+    display: flex;
+  }
+  
+  .desktop-only {
+    display: block;
+  }
+}
+
+/* Desktop pequeno */
+@media (max-width: 1024px) and (min-width: 1025px) {
   .ide-sidebar {
     width: 240px;
   }
@@ -984,14 +1148,33 @@
   }
 }
 
+/* Mobile Layout */
 @media (max-width: 768px) {
   .ide-layout {
     flex-direction: column;
+    height: 100vh;
   }
   
-  .ide-sidebar, .ide-chat {
+  .ide-sidebar {
     width: 100% !important;
-    height: 200px;
+    height: auto;
+    min-height: 60px;
+    max-height: 200px;
+    flex-shrink: 0;
+  }
+  
+  .ide-chat {
+    width: 100% !important;
+    height: auto;
+    flex: 1;
+    min-height: 300px;
+    order: 3;
+  }
+  
+  .ide-main {
+    flex: 1;
+    min-height: 300px;
+    order: 2;
   }
   
   .resize-handle {
