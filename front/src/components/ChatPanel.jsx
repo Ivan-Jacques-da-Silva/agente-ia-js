@@ -70,7 +70,7 @@ const ChatPanel = ({
       })) : [];
 
       return (
-        <div className="chat-message agent-progress">
+        <div key={msg.id || `progress-${Date.now()}`} className="chat-message agent-progress">
           <Timeline 
             steps={timelineSteps}
             currentStep={msg.currentStep}
@@ -151,7 +151,11 @@ const ChatPanel = ({
               </ul>
             </div>
           ) : (
-            chatMessages.map(renderMessage)
+            chatMessages.map((msg, index) => (
+              <div key={msg.id || `msg-${index}`}>
+                {renderMessage(msg)}
+              </div>
+            ))
           )}
 
           {isLoading && (

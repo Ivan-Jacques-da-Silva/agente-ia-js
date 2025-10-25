@@ -81,6 +81,21 @@ db.exec(`
     FOREIGN KEY (mudanca_id) REFERENCES mudancas_pendentes(id) ON DELETE SET NULL
   );
 
+  CREATE TABLE IF NOT EXISTS materiais (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    categoria TEXT NOT NULL,
+    cor TEXT DEFAULT '#3498db',
+    icone TEXT DEFAULT 'circle',
+    posicao_x REAL DEFAULT 0,
+    posicao_y REAL DEFAULT 0,
+    descricao TEXT,
+    propriedades TEXT,
+    ativo BOOLEAN DEFAULT 1,
+    criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE INDEX IF NOT EXISTS idx_projetos_url ON projetos(repositorio_url);
   CREATE INDEX IF NOT EXISTS idx_arquivos_projeto ON arquivos_contexto(projeto_id);
   CREATE INDEX IF NOT EXISTS idx_mudancas_projeto ON mudancas_pendentes(projeto_id);
@@ -88,6 +103,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_historico_projeto ON historico(projeto_id);
   CREATE INDEX IF NOT EXISTS idx_conversas_projeto ON conversas(projeto_id);
   CREATE INDEX IF NOT EXISTS idx_versoes_arquivo ON versoes_arquivo(projeto_id, arquivo);
+  CREATE INDEX IF NOT EXISTS idx_materiais_categoria ON materiais(categoria);
+  CREATE INDEX IF NOT EXISTS idx_materiais_ativo ON materiais(ativo);
 `);
 
 export function criarProjeto(nome, repositorioUrl, caminhoLocal = null, branchPadrao = "main") {
@@ -248,6 +265,111 @@ export function buscarVersoesArquivo(projetoId, arquivo, limite = 10) {
     LIMIT ?
   `);
   return stmt.all(projetoId, arquivo, limite);
+}
+
+// Funções CRUD para Materiais
+export function criarMaterial(nome, categoria, cor = '#3498db', icone = 'circle', posicaoX = 0, posicaoY = 0, descricao = null, propriedades = null) {
+  const stmt = db.prepare(`
+    INSERT INTO materiais (nome, categoria, cor, icone, posicao_x, posicao_y, descricao, propriedades)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const info = stmt.run(nome, categoria, cor, icone, posicaoX, posicaoY, descricao, propriedades ? JSON.stringify(propriedades) : null);
+  return info.lastInsertRowid;
+}
+
+export function listarMateriais(categoria = null, ativo = true) {
+  let query = `SELECT * FROM materiais WHERE ativo = ?`;
+  let params = [ativo ? 1 : 0];
+  
+  if (categoria) {
+    query += ` AND categoria = ?`;
+    params.push(categoria);
+  }
+  
+  query += ` ORDER BY nome ASC`;
+  
+  const stmt = db.prepare(query);
+  return stmt.all(...params).map(material => ({
+    ...material,
+    propriedades: material.propriedades ? JSON.parse(material.propriedades) : null
+  }));
+}
+
+export function buscarMaterialPorId(id) {
+  const stmt = db.prepare(`SELECT * FROM materiais WHERE id = ?`);
+  const material = stmt.get(id);
+  if (material && material.propriedades) {
+    material.propriedades = JSON.parse(material.propriedades);
+  }
+  return material;
+}
+
+export function atualizarMaterial(id, dados) {
+  const campos = [];
+  const valores = [];
+  
+  if (dados.nome !== undefined) {
+    campos.push('nome = ?');
+    valores.push(dados.nome);
+  }
+  if (dados.categoria !== undefined) {
+    campos.push('categoria = ?');
+    valores.push(dados.categoria);
+  }
+  if (dados.cor !== undefined) {
+    campos.push('cor = ?');
+    valores.push(dados.cor);
+  }
+  if (dados.icone !== undefined) {
+    campos.push('icone = ?');
+    valores.push(dados.icone);
+  }
+  if (dados.posicaoX !== undefined) {
+    campos.push('posicao_x = ?');
+    valores.push(dados.posicaoX);
+  }
+  if (dados.posicaoY !== undefined) {
+    campos.push('posicao_y = ?');
+    valores.push(dados.posicaoY);
+  }
+  if (dados.descricao !== undefined) {
+    campos.push('descricao = ?');
+    valores.push(dados.descricao);
+  }
+  if (dados.propriedades !== undefined) {
+    campos.push('propriedades = ?');
+    valores.push(dados.propriedades ? JSON.stringify(dados.propriedades) : null);
+  }
+  if (dados.ativo !== undefined) {
+    campos.push('ativo = ?');
+    valores.push(dados.ativo ? 1 : 0);
+  }
+  
+  campos.push('atualizado_em = CURRENT_TIMESTAMP');
+  valores.push(id);
+  
+  const stmt = db.prepare(`
+    UPDATE materiais 
+    SET ${campos.join(', ')}
+    WHERE id = ?
+  `);
+  
+  return stmt.run(...valores);
+}
+
+export function excluirMaterial(id) {
+  const stmt = db.prepare(`UPDATE materiais SET ativo = 0, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?`);
+  return stmt.run(id);
+}
+
+export function removerMaterialPermanente(id) {
+  const stmt = db.prepare(`DELETE FROM materiais WHERE id = ?`);
+  return stmt.run(id);
+}
+
+export function listarCategoriasMateriais() {
+  const stmt = db.prepare(`SELECT DISTINCT categoria FROM materiais WHERE ativo = 1 ORDER BY categoria ASC`);
+  return stmt.all().map(row => row.categoria);
 }
 
 export function restaurarVersaoArquivo(versaoId) {

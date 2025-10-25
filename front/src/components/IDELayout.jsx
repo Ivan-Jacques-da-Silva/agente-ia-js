@@ -32,6 +32,7 @@ import {
 } from 'react-icons/fa';
 import ChatPanel from './ChatPanel';
 import SecurityPanel from './SecurityPanel';
+import FileTree from './FileTree';
 import './IDELayout.css';
 
 export function IDELayout({
@@ -81,7 +82,6 @@ export function IDELayout({
   
   // Estados do chat
   const [chatInput, setChatInput] = useState('');
-  const [expandedFolders, setExpandedFolders] = useState(new Set());
   
   // Estados do terminal
   const [terminalOutput, setTerminalOutput] = useState([]);
@@ -164,25 +164,9 @@ export function IDELayout({
   };
 
   // Handlers de arquivos
-  const handleFileClick = (file) => {
-    if (file.type === 'file') {
-      // Enviar o caminho do arquivo, conforme esperado pelo App
-      onFileSelect?.(file.path);
-    } else {
-      toggleFolder(file.path);
-    }
+  const handleFileClick = (filePath) => {
+    onFileSelect?.(filePath);
   };
-
-  const toggleFolder = (folderPath) => {
-    const newExpanded = new Set(expandedFolders);
-    if (newExpanded.has(folderPath)) {
-      newExpanded.delete(folderPath);
-    } else {
-      newExpanded.add(folderPath);
-    }
-    setExpandedFolders(newExpanded);
-  };
-
   // Handler do chat
   const handleChatSubmit = (e) => {
     e.preventDefault();
@@ -285,49 +269,7 @@ export function IDELayout({
     }
   }, [currentProject, fileTree, previewUrl]);
 
-  // Renderização da árvore de arquivos
-  const renderFileTree = (items, level = 0) => {
-    return items.map((item, index) => {
-      const isExpanded = expandedFolders.has(item.path);
-      const hasChildren = item.type === 'folder' && item.children && item.children.length > 0;
-      
-      return (
-        <div key={item.path || index} className="file-tree-item">
-          <div
-            className={`file-tree-node ${item.type === 'file' ? 'file' : 'folder'} ${
-              activeTab === item.path ? 'active' : ''
-            }`}
-            style={{ paddingLeft: `${level * 16 + 8}px` }}
-            onClick={() => handleFileClick(item)}
-          >
-            <span className="file-icon">
-              {item.type === 'folder' ? (
-                <>
-                  <span className={`folder-chevron ${isExpanded ? 'expanded' : ''}`}>
-                    <FaChevronRight />
-                  </span>
-                  {isExpanded ? <FaFolderOpen /> : <FaFolder />}
-                </>
-              ) : (
-                <FaFile />
-              )}
-            </span>
-            <span className="file-name">{item.name}</span>
-            {item.type === 'folder' && !isExpanded && hasChildren && (
-              <span className="loading-indicator">
-                <i className="fas fa-spinner fa-spin"></i>
-              </span>
-            )}
-          </div>
-          {item.type === 'folder' && isExpanded && hasChildren && (
-            <div className="folder-children">
-              {renderFileTree(item.children, level + 1)}
-            </div>
-          )}
-        </div>
-      );
-    });
-  };
+
 
   return (
     <div className={`ide-layout ${theme}`}>
@@ -393,26 +335,20 @@ export function IDELayout({
                   <span>EXPLORADOR</span>
                   <div className="panel-actions">
                     <button className="panel-action" onClick={onCreateFile} title="Novo Arquivo">
-              <FaFile />
-            </button>
-            <button className="panel-action" onClick={onCreateFolder} title="Nova Pasta">
-              <FaFolder />
-            </button>
+                      <FaFile />
+                    </button>
+                    <button className="panel-action" onClick={onCreateFolder} title="Nova Pasta">
+                      <FaFolder />
+                    </button>
                   </div>
                 </div>
-                <div className="file-tree">
-                  {currentProject ? (
-                    <div className="project-root">
-                      <div className="project-name">{currentProject.name}</div>
-                      {renderFileTree(fileTree)}
-                    </div>
-                  ) : (
-                    <div className="no-project">
-                      <p>Nenhuma pasta aberta</p>
-                      <button onClick={() => onOpenFolder?.()}>Abrir Pasta</button>
-                    </div>
-                  )}
-                </div>
+                <FileTree
+                  fileTree={fileTree}
+                  onFileClick={handleFileClick}
+                  activeFile={activeTab}
+                  currentProject={currentProject}
+                  onOpenFolder={onOpenFolder}
+                />
               </div>
             )}
             

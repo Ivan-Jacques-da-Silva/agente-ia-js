@@ -4,6 +4,7 @@ import Landing from './landing.jsx';
 import IDELayout from './components/IDELayout.jsx';
 import AgenticInterface from './components/AgenticInterface.jsx';
 import SecurityPanel from './components/SecurityPanel.jsx';
+import MaterialManager from './components/MaterialManager.jsx';
 
 export default function Router({ 
   // Props para Landing
@@ -161,6 +162,10 @@ export default function Router({
       <Route 
         path="/security" 
         element={<SecurityPanel />} 
+      />
+      <Route 
+        path="/materiais" 
+        element={<MaterialManager />} 
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

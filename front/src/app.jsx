@@ -863,101 +863,110 @@ export default function App() {
   }
 
   async function abrirPastaLocal(folderData = null) {
-    try {
-      console.log('=== INÍCIO abrirPastaLocal ===');
-      console.log('folderData recebido:', folderData);
-      console.log('Tipo de folderData:', typeof folderData);
-      console.log('folderData é null?', folderData === null);
-      console.log('folderData é undefined?', folderData === undefined);
-      
-      if (folderData && typeof folderData === 'object') {
-        console.log('Propriedades de folderData:', Object.keys(folderData));
-        console.log('folderData.structure:', folderData.structure);
-        console.log('folderData.name:', folderData.name);
-        console.log('folderData.path:', folderData.path);
-      }
-      
-      let projeto, files = [];
-      
-      if (folderData) {
-        // Dados vindos do FolderPicker
-        if (!folderData.structure || typeof folderData.structure !== 'object') {
-          console.error('folderData.structure é inválido:', folderData.structure);
-          setErro('Dados da pasta inválidos - estrutura não encontrada');
-          return;
+    await runWithLoading("Carregando pasta...", async () => {
+      try {
+        console.log('=== INÍCIO abrirPastaLocal ===');
+        console.log('folderData recebido:', folderData);
+        console.log('Tipo de folderData:', typeof folderData);
+        console.log('folderData é null?', folderData === null);
+        console.log('folderData é undefined?', folderData === undefined);
+        
+        if (folderData && typeof folderData === 'object') {
+          console.log('Propriedades de folderData:', Object.keys(folderData));
+          console.log('folderData.structure:', folderData.structure);
+          console.log('folderData.name:', folderData.name);
+          console.log('folderData.path:', folderData.path);
         }
         
-        if (!folderData.name) {
-          console.error('folderData.name é inválido:', folderData.name);
-          setErro('Nome da pasta não encontrado');
-          return;
-        }
-        
-        // Função recursiva para extrair todos os arquivos da estrutura
-        function extractFiles(structure, basePath = '') {
-          if (!structure || typeof structure !== 'object' || structure === null) {
-            console.warn('extractFiles: estrutura inválida:', structure);
-            return [];
+        let projeto, files = [];
+
+        // Flag de fallback quando o payload não for o esperado
+        let useInteractivePicker = false;
+
+        if (folderData) {
+          // Alguns fluxos podem chamar esta função passando um "projeto" salvo,
+          // que não contém a propriedade structure. Nesse caso, fazemos fallback
+          // para o seletor interativo em vez de falhar.
+          if (!folderData.structure || typeof folderData.structure !== 'object') {
+            console.warn('folderData não possui structure válido, usando seletor interativo...');
+            useInteractivePicker = true;
           }
-          
-          const result = [];
-          try {
-            // Verificação adicional antes de usar Object.entries
-            if (structure.constructor !== Object && !Array.isArray(structure)) {
-              console.warn('extractFiles: estrutura não é um objeto válido:', structure);
-              return [];
+
+          if (!useInteractivePicker) {
+            if (!folderData.name) {
+              console.error('folderData.name é inválido:', folderData.name);
+              setErro('Nome da pasta não encontrado');
+              return;
             }
-            
-            const entries = Object.entries(structure);
-            if (!entries || entries.length === 0) {
-              console.warn('extractFiles: nenhuma entrada encontrada na estrutura');
-              return [];
-            }
-            
-            entries.forEach(([name, item]) => {
-              if (!name || !item || typeof item !== 'object' || item === null) {
-                console.warn('extractFiles: item inválido:', name, item);
-                return;
+
+            // Função recursiva para extrair todos os arquivos da estrutura
+            function extractFiles(structure, basePath = '') {
+              if (!structure || typeof structure !== 'object' || structure === null) {
+                console.warn('extractFiles: estrutura inválida:', structure);
+                return [];
               }
               
-              const fullPath = basePath ? `${basePath}/${name}` : name;
-              if (item.type === 'directory') {
-                result.push(`${fullPath}/`);
-                if (item.children && typeof item.children === 'object' && item.children !== null) {
-                  result.push(...extractFiles(item.children, fullPath));
+              const result = [];
+              try {
+                // Verificação adicional antes de usar Object.entries
+                if (structure.constructor !== Object && !Array.isArray(structure)) {
+                  console.warn('extractFiles: estrutura não é um objeto válido:', structure);
+                  return [];
                 }
-              } else if (item.type === 'file') {
-                result.push(fullPath);
+                
+                const entries = Object.entries(structure);
+                if (!entries || entries.length === 0) {
+                  console.warn('extractFiles: nenhuma entrada encontrada na estrutura');
+                  return [];
+                }
+                
+                entries.forEach(([name, item]) => {
+                  if (!name || !item || typeof item !== 'object' || item === null) {
+                    console.warn('extractFiles: item inválido:', name, item);
+                    return;
+                  }
+                  
+                  const fullPath = basePath ? `${basePath}/${name}` : name;
+                  if (item.type === 'directory') {
+                    result.push(`${fullPath}/`);
+                    if (item.children && typeof item.children === 'object' && item.children !== null) {
+                      result.push(...extractFiles(item.children, fullPath));
+                    }
+                  } else if (item.type === 'file') {
+                    result.push(fullPath);
+                  }
+                });
+              } catch (error) {
+                console.error('Erro ao processar estrutura:', error, 'Estrutura:', structure);
               }
-            });
-          } catch (error) {
-            console.error('Erro ao processar estrutura:', error, 'Estrutura:', structure);
+              return result;
+            }
+
+            files = extractFiles(folderData.structure);
+            console.log('Arquivos extraídos:', files);
+
+            if (files.length === 0) {
+              console.warn('Nenhum arquivo encontrado na pasta');
+              setErro('Pasta vazia ou não foi possível ler os arquivos');
+              return;
+            }
+
+            projeto = {
+              id: `local_${Date.now()}`,
+              name: folderData.name,
+              type: 'local',
+              path: folderData.path || folderData.name,
+              folderData: folderData
+            };
           }
-          return result;
         }
-        
-        files = extractFiles(folderData.structure);
-        console.log('Arquivos extraídos:', files);
-        
-        if (files.length === 0) {
-          console.warn('Nenhum arquivo encontrado na pasta');
-          setErro('Pasta vazia ou não foi possível ler os arquivos');
-          return;
-        }
-        
-        projeto = {
-          id: `local_${Date.now()}`,
-          name: folderData.name,
-          type: 'local',
-          path: folderData.path || folderData.name,
-          folderData: folderData
-        };
-      } else {
-        // Verificar se a API File System Access está disponível
-        if (!window.showDirectoryPicker) {
-          setErro('Seu navegador não suporta a seleção de pastas. Use Chrome/Edge mais recente ou use o botão "Abrir Pasta" na tela inicial.');
-          return;
-        }
+
+        if (!folderData || useInteractivePicker) {
+          // Verificar se a API File System Access está disponível
+          if (!window.showDirectoryPicker) {
+            setErro('Seu navegador não suporta a seleção de pastas. Use Chrome/Edge mais recente ou use o botão "Abrir Pasta" na tela inicial.');
+            return;
+          }
 
         try {
           // Abrir o seletor de pasta
@@ -1026,13 +1035,14 @@ export default function App() {
       setProjetos(prev => {
         const filtered = prev.filter(p => p.type !== 'local' || p.name !== projeto.name);
         return [...filtered, projeto];
-      });
-      setMostrarLandingForcado(false);
-      
-    } catch (error) {
-      console.error('Erro ao abrir pasta:', error);
-      setErro(`Erro ao abrir pasta: ${error.message || 'Erro desconhecido'}`);
-    }
+        });
+        setMostrarLandingForcado(false);
+        
+      } catch (error) {
+        console.error('Erro ao abrir pasta:', error);
+        setErro(`Erro ao abrir pasta: ${error.message || 'Erro desconhecido'}`);
+      }
+    });
   }
 
   function voltarParaInicio() {
@@ -1232,25 +1242,7 @@ export default function App() {
        ));
     }, 4500);
 
-    setTimeout(() => {
-      setChatMessages(prev => prev.map(msg => 
-        msg.id === mensagemProgresso.id ? {
-          ...msg,
-          currentStep: null,
-          steps: msg.steps.map(step => ({ ...step, status: 'completed' }))
-        } : msg
-      ));
-
-      // Adicionar resposta final do agente
-       const respostaFinal = {
-         id: Date.now() + 2,
-         type: 'assistant',
-         content: `Processamento concluído com sucesso para sua solicitação: "${texto}". A implementação foi finalizada seguindo estas etapas:\n\n✅ Analisei e compreendi seus requisitos\n✅ Criei um plano de implementação abrangente\n✅ Executei todas as alterações necessárias no código\n✅ Testei e validei a funcionalidade\n\nTudo está funcionando corretamente e pronto para uso!`,
-         timestamp: new Date().toISOString()
-       };
-
-      setChatMessages(prev => [...prev, respostaFinal]);
-    }, 6000);
+    // Processar com o agente real via streaming
 
     // Chamar a função original para processar no backend
     enviar_chat(texto);

@@ -306,6 +306,10 @@ export default function Landing({ onImportarGitHub, onCriarDoZero, agenteStatus,
           <span className="status-text">
             {agenteStatus === "ready" ? "Agente conectado" : agenteStatus === "resolving" ? "Conectando..." : "Agente indisponível"}
           </span>
+          <div className="footer-links">
+            <a href="/materiais" className="footer-link">Sistema de Materiais</a>
+            <a href="/security" className="footer-link">Segurança</a>
+          </div>
         </div>
       </div>
     </div>

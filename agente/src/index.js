@@ -12,6 +12,7 @@ import { CriadorProjeto } from "./criar-projeto.js";
 // Importar rotas
 import agenticRoutes from './routes/agentic.js';
 import securityRoutes from './routes/security.js';
+import materiaisRoutes from './routes/materiais.js';
 import {
   criarProjeto,
   buscarProjetoPorUrl,
@@ -48,6 +49,8 @@ app.use(express.json({ limit: "10mb" }));
 
 // Configurar rotas agentic
 app.use('/api/agentic', agenticRoutes);
+app.use('/api/security', securityRoutes);
+app.use('/api/materiais', materiaisRoutes);
 
 // Configurar rotas de segurança
 app.use('/api/security', securityRoutes);

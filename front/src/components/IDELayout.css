@@ -818,6 +818,9 @@
   border-left: 1px solid var(--border-color);
   transition: width 0.3s ease;
   min-width: 48px;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
 }
 
 .ide-chat.collapsed {
@@ -878,6 +881,8 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+  max-height: calc(100vh - 120px);
 }
 
 .message {
@@ -1010,8 +1015,8 @@
 }
 
 /* Responsividade */
-/* Tablet Layout - Sidebar lateral esquerda, chat abaixo do terminal */
-@media (max-width: 1024px) and (min-width: 769px) {
+/* Tablet Layout Horizontal - Layout com chat lateral direito */
+@media (max-width: 1024px) and (min-width: 769px) and (orientation: landscape) {
   .ide-layout {
     display: flex;
     flex-direction: row;
@@ -1020,10 +1025,125 @@
   }
   
   .ide-sidebar {
-    width: 280px !important;
+    width: 240px !important;
     height: 100vh;
     min-height: auto;
     max-height: none;
+    flex-shrink: 0;
+    order: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .sidebar-content {
+    flex: 1;
+    overflow-y: auto;
+  }
+  
+  .sidebar-actions {
+    flex-shrink: 0;
+    padding: 8px;
+    border-top: 1px solid var(--border-color);
+  }
+  
+  .ide-main {
+    flex: 1;
+    min-height: auto;
+    order: 2;
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+  }
+  
+  .main-content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .bottom-panel {
+    min-height: 160px !important;
+    max-height: 240px !important;
+    flex-shrink: 0;
+  }
+  
+  .bottom-content {
+    height: calc(100% - 40px);
+    overflow: hidden;
+  }
+  
+  .terminal-panel {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    gap: 8px;
+  }
+  
+  .terminal-output {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 100px;
+  }
+  
+  /* Chat horizontal lateral para tablet */
+  .tablet-chat-container {
+    display: flex;
+    flex-direction: column;
+    width: 320px;
+    min-width: 320px;
+    max-width: 400px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    order: 3;
+  }
+  
+  /* Esconder chat desktop em tablet */
+  .desktop-chat {
+    display: none;
+  }
+  
+  .desktop-only {
+    display: none;
+  }
+  
+  .resize-handle.sidebar-resize {
+    cursor: ew-resize;
+    width: 4px;
+    background: var(--border-color);
+  }
+  
+  .resize-handle.sidebar-resize:hover {
+    background: var(--primary-color);
+  }
+  
+  .resize-handle.bottom-resize {
+    cursor: ns-resize;
+    height: 4px;
+    background: var(--border-color);
+  }
+  
+  .resize-handle.bottom-resize:hover {
+    background: var(--primary-color);
+  }
+}
+
+/* Tablet Layout Portrait - Layout vertical tradicional */
+@media (max-width: 1024px) and (min-width: 769px) and (orientation: portrait) {
+  .ide-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  
+  .ide-sidebar {
+    width: 100% !important;
+    height: auto;
+    min-height: 60px;
+    max-height: 200px;
     flex-shrink: 0;
     order: 1;
     display: flex;
@@ -1058,8 +1178,8 @@
   }
   
   .bottom-panel {
-    min-height: 180px !important;
-    max-height: 280px !important;
+    min-height: 120px !important;
+    max-height: 180px !important;
     flex-shrink: 0;
   }
   
@@ -1079,14 +1199,14 @@
   .terminal-output {
     flex: 1;
     overflow-y: auto;
-    min-height: 120px;
+    min-height: 80px;
   }
   
-  /* Chat integrado na área principal para tablet */
+  /* Chat abaixo do terminal para tablet portrait */
   .tablet-chat-container {
     display: block;
-    min-height: 220px;
-    max-height: 320px;
+    min-height: 200px;
+    max-height: 280px;
     flex-shrink: 0;
     margin-top: 8px;
     border-top: 1px solid var(--border-color);

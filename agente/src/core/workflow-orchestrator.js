@@ -118,11 +118,15 @@ export class WorkflowOrchestrator extends EventEmitter {
    * Determina workflow apropriado baseado na intenção
    */
   async determineWorkflow(intent, parameters) {
-    // Usar LLM para determinar workflow
+    // Análise adaptativa da complexidade
+    const complexity = this.analyzeTaskComplexity(intent, parameters);
+    
+    // Usar LLM para determinar workflow com contexto de complexidade
     const prompt = `Analise a seguinte intenção e determine o workflow mais apropriado:
 
 INTENÇÃO: ${intent}
 PARÂMETROS: ${JSON.stringify(parameters, null, 2)}
+COMPLEXIDADE DETECTADA: ${complexity.level} (${complexity.reasoning})
 
 WORKFLOWS DISPONÍVEIS:
 ${Object.entries(this.workflows).map(([key, workflow]) => 
@@ -134,12 +138,109 @@ Responda apenas com a chave do workflow mais apropriado, ou "custom" se precisar
     const response = await this.llmClient.sendMessage(prompt);
     const workflowKey = response.content.trim().toLowerCase();
 
+    let workflow;
     if (this.workflows[workflowKey]) {
-      return this.workflows[workflowKey];
+      workflow = this.workflows[workflowKey];
+    } else {
+      // Se não encontrou workflow predefinido, criar um personalizado
+      workflow = await this.createCustomWorkflow(intent, parameters);
     }
 
-    // Se não encontrou workflow predefinido, criar um personalizado
-    return await this.createCustomWorkflow(intent, parameters);
+    // Adaptar workflow baseado na complexidade
+    return this.adaptWorkflowToComplexity(workflow, complexity, parameters);
+  }
+
+  /**
+   * Analisa a complexidade da tarefa
+   */
+  analyzeTaskComplexity(intent, parameters) {
+    const complexityIndicators = {
+      high: [
+        'sistema completo', 'aplicação completa', 'plataforma', 'dashboard',
+        'autenticação', 'banco de dados', 'api completa', 'crud completo',
+        'deploy', 'produção', 'escalável', 'arquitetura'
+      ],
+      medium: [
+        'componente', 'página', 'funcionalidade', 'integração', 'api',
+        'formulário', 'validação', 'responsivo', 'interativo'
+      ],
+      low: [
+        'botão', 'texto', 'cor', 'estilo', 'layout simples', 'ajuste',
+        'correção', 'pequena mudança', 'fix'
+      ]
+    };
+
+    const text = `${intent} ${JSON.stringify(parameters)}`.toLowerCase();
+    
+    let highScore = 0, mediumScore = 0, lowScore = 0;
+    
+    complexityIndicators.high.forEach(indicator => {
+      if (text.includes(indicator)) highScore++;
+    });
+    
+    complexityIndicators.medium.forEach(indicator => {
+      if (text.includes(indicator)) mediumScore++;
+    });
+    
+    complexityIndicators.low.forEach(indicator => {
+      if (text.includes(indicator)) lowScore++;
+    });
+
+    let level, reasoning;
+    if (highScore > 0 || text.length > 200) {
+      level = 'high';
+      reasoning = 'Tarefa complexa detectada - requer múltiplas etapas e análise detalhada';
+    } else if (mediumScore > 0 || (text.length > 50 && text.length <= 200)) {
+      level = 'medium';
+      reasoning = 'Tarefa de complexidade média - requer algumas etapas de implementação';
+    } else {
+      level = 'low';
+      reasoning = 'Tarefa simples - pode ser executada com passos mínimos';
+    }
+
+    return { level, reasoning, scores: { high: highScore, medium: mediumScore, low: lowScore } };
+  }
+
+  /**
+   * Adapta workflow baseado na complexidade
+   */
+  adaptWorkflowToComplexity(workflow, complexity, parameters) {
+    const adaptedWorkflow = { ...workflow };
+    
+    switch (complexity.level) {
+      case 'high':
+        // Adicionar passos de análise e validação extras
+        adaptedWorkflow.steps = [
+          { id: 'deep_analysis', name: 'Análise Profunda dos Requisitos', type: 'analysis' },
+          { id: 'architecture_planning', name: 'Planejamento da Arquitetura', type: 'planning' },
+          ...workflow.steps,
+          { id: 'comprehensive_test', name: 'Testes Abrangentes', type: 'test' },
+          { id: 'performance_check', name: 'Verificação de Performance', type: 'validation' },
+          { id: 'security_review', name: 'Revisão de Segurança', type: 'validation' }
+        ];
+        break;
+        
+      case 'medium':
+        // Manter passos padrão com validação adicional
+        adaptedWorkflow.steps = [
+          ...workflow.steps,
+          { id: 'quality_check', name: 'Verificação de Qualidade', type: 'validation' }
+        ];
+        break;
+        
+      case 'low':
+        // Simplificar passos para execução rápida
+        adaptedWorkflow.steps = workflow.steps.filter(step => 
+          !['validate', 'test'].includes(step.type) || step.critical === true
+        );
+        // Adicionar apenas validação básica
+        adaptedWorkflow.steps.push(
+          { id: 'basic_check', name: 'Verificação Básica', type: 'validation' }
+        );
+        break;
+    }
+
+    return adaptedWorkflow;
   }
 
   /**
@@ -272,6 +373,9 @@ Responda em formato JSON:
       
       case 'validation':
         return await this.executeValidationStep(step, parameters, workflowId);
+      
+      case 'planning':
+        return await this.executePlanningStep(step, parameters, workflowId);
       
       default:
         throw new Error(`Tipo de passo não suportado: ${step.type}`);
@@ -658,6 +762,30 @@ Sugira uma estratégia de recuperação e execute-a.`;
    */
   getActiveWorkflows() {
     return Array.from(this.activeWorkflows.values());
+  }
+
+  /**
+   * Executa passo de planejamento
+   */
+  async executePlanningStep(step, parameters, workflowId) {
+    const prompt = `Crie um plano detalhado para: ${step.name}
+
+CONTEXTO: ${JSON.stringify(parameters, null, 2)}
+
+Forneça um plano estruturado com:
+1. Objetivos específicos
+2. Recursos necessários
+3. Arquitetura recomendada
+4. Considerações técnicas
+5. Possíveis desafios e soluções`;
+
+    const response = await this.llmClient.sendMessage(prompt);
+    
+    return {
+      success: true,
+      plan: response.content,
+      timestamp: Date.now()
+    };
   }
 
   /**

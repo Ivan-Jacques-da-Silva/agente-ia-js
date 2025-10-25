@@ -10,6 +10,7 @@ import {
 } from "../database.js";
 import { chat_simples } from "../llm.js";
 import { gerarMudancaInteligente, gerarDiff, analisarDiferencas } from "../analisador.js";
+import { ContextAwareness } from "./context-awareness.js";
 
 function emit(res, tipo, conteudo) {
   res.write(`data: ${JSON.stringify({ tipo, conteudo })}\n\n`);
@@ -98,9 +99,160 @@ async function analyzeIntent(mensagem, ctx) {
   return { kind: "code_change", targets: [], plan: ["Entender", "Modificar", "Validar"], confidence: 0.4, needsQuestions: true };
 }
 
-async function answerChat(mensagem, ctx) {
-  const contexto = ctx.resumoContexto ? `Contexto resumido do projeto e conversa:\n${ctx.resumoContexto}` : "";
+async function answerChat(mensagem, ctx, behaviorAdjustments = {}) {
+  // Detectar se é uma resposta conversacional natural
+  const naturalResponse = generateNaturalResponse(mensagem, ctx, behaviorAdjustments);
+  if (naturalResponse) {
+    return naturalResponse;
+  }
+
+  // Aplicar ajustes comportamentais na resposta do chat
+  let contexto = ctx.resumoContexto ? `Contexto resumido do projeto e conversa:\n${ctx.resumoContexto}` : "";
+  
+  // Adicionar instruções comportamentais baseadas na consciência contextual
+  if (behaviorAdjustments.responseStyle || behaviorAdjustments.detailLevel || behaviorAdjustments.formality) {
+    contexto += "\n\nAjustes comportamentais para esta resposta:\n";
+    
+    if (behaviorAdjustments.responseStyle === 'direct') {
+      contexto += "- Seja direto e objetivo, evite rodeios\n";
+    } else if (behaviorAdjustments.responseStyle === 'explanatory') {
+      contexto += "- Forneça explicações detalhadas e contexto adicional\n";
+    } else if (behaviorAdjustments.responseStyle === 'casual') {
+      contexto += "- Use um tom mais casual e descontraído\n";
+    }
+    
+    if (behaviorAdjustments.detailLevel === 'high') {
+      contexto += "- Inclua mais detalhes técnicos e passos intermediários\n";
+    } else if (behaviorAdjustments.detailLevel === 'low') {
+      contexto += "- Mantenha a resposta concisa e focada\n";
+    }
+    
+    if (behaviorAdjustments.formality === 'casual') {
+      contexto += "- Use linguagem informal e amigável\n";
+    } else if (behaviorAdjustments.formality === 'professional') {
+      contexto += "- Mantenha um tom profissional e formal\n";
+    }
+    
+    if (behaviorAdjustments.proactivity === 'high') {
+      contexto += "- Seja proativo em sugerir melhorias e próximos passos\n";
+    }
+  }
+  
   return await chat_simples(mensagem, contexto);
+}
+
+/**
+ * Gera respostas conversacionais naturais para interações básicas
+ */
+function generateNaturalResponse(mensagem, ctx, behaviorAdjustments = {}) {
+  const msg = mensagem.toLowerCase().trim();
+  
+  // Aplicar ajustes de formalidade
+  const isCasual = behaviorAdjustments.formality === 'casual';
+  const isProfessional = behaviorAdjustments.formality === 'professional';
+  
+  // Cumprimentos
+  const greetings = ['oi', 'olá', 'ola', 'hey', 'hi', 'hello', 'bom dia', 'boa tarde', 'boa noite'];
+  if (greetings.some(greeting => msg === greeting || msg.startsWith(greeting + ' ') || msg.startsWith(greeting + ','))) {
+    let responses;
+    if (isProfessional) {
+      responses = [
+        'Olá! Como posso auxiliá-lo hoje?',
+        'Bom dia! Estou à disposição para ajudar com seu projeto.',
+        'Saudações! Em que posso ser útil?',
+        'Olá! Pronto para colaborar em suas necessidades.'
+      ];
+    } else if (isCasual) {
+      responses = [
+        'E aí! 😄 Bora trabalhar juntos?',
+        'Oi! Tudo certo? Vamos fazer algo massa hoje?',
+        'Hey! 🤘 Qual é a boa de hoje?',
+        'Salve! Pronto pra codar? 🚀'
+      ];
+    } else {
+      responses = [
+        'Oi! 👋 Como posso ajudar você hoje?',
+        'Olá! Estou aqui para ajudar com seu projeto. O que você gostaria de fazer?',
+        'Oi! Pronto para trabalhar juntos. Em que posso ajudar?',
+        'Hey! 🤖 Vamos criar algo incrível hoje?'
+      ];
+    }
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+
+  // Agradecimentos
+  const thanks = ['obrigado', 'obrigada', 'valeu', 'thanks', 'thank you', 'brigado', 'brigada'];
+  if (thanks.some(thank => msg.includes(thank))) {
+    const responses = [
+      'De nada! 😊 Estou sempre aqui para ajudar.',
+      'Por nada! Foi um prazer ajudar. Precisa de mais alguma coisa?',
+      'Fico feliz em ajudar! 🚀 Vamos continuar?',
+      'Sempre às ordens! Que tal o próximo desafio?'
+    ];
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+
+  // Despedidas
+  const farewells = ['tchau', 'bye', 'até logo', 'até mais', 'falou', 'até', 'adeus'];
+  if (farewells.some(farewell => msg === farewell || msg.startsWith(farewell + ' '))) {
+    const responses = [
+      'Até logo! 👋 Foi ótimo trabalhar com você.',
+      'Tchau! Estarei aqui quando precisar. 🤖',
+      'Até mais! Espero ter ajudado bastante hoje.',
+      'Falou! Qualquer coisa, é só chamar! 🚀'
+    ];
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+
+  // Elogios
+  const compliments = ['muito bom', 'excelente', 'perfeito', 'ótimo', 'incrível', 'top', 'show', 'massa'];
+  if (compliments.some(comp => msg.includes(comp))) {
+    const responses = [
+      'Que bom que gostou! 😊 Vamos continuar fazendo coisas incríveis.',
+      'Obrigado! 🤖 Adoro quando o resultado fica do seu gosto.',
+      'Fico feliz que tenha ficado bom! Próximo desafio?',
+      'Show! 🚀 Trabalhando juntos sempre dá certo.'
+    ];
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+
+  // Confirmações simples
+  const confirmations = ['ok', 'okay', 'certo', 'entendi', 'beleza', 'perfeito', 'sim', 'yes'];
+  if (confirmations.includes(msg)) {
+    const responses = [
+      'Perfeito! 👍 Vamos em frente.',
+      'Ótimo! O que fazemos agora?',
+      'Beleza! 🤖 Próximo passo?',
+      'Show! Estamos alinhados. 🚀'
+    ];
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+
+  // Pedidos de ajuda genéricos
+  const helpRequests = ['me ajuda', 'preciso de ajuda', 'help', 'socorro', 'não sei'];
+  if (helpRequests.some(help => msg.includes(help))) {
+    const responses = [
+      'Claro! 🤖 Estou aqui para isso. Me conte o que você precisa.',
+      'Sempre! Em que posso ajudar especificamente?',
+      'É para isso que existo! 😊 Qual é o desafio?',
+      'Vamos resolver juntos! 🚀 Me explica melhor o que você precisa.'
+    ];
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+
+  // Expressões de dúvida
+  const doubts = ['não entendi', 'como assim', 'o que', 'hein', 'como', 'que isso'];
+  if (doubts.some(doubt => msg.includes(doubt))) {
+    const responses = [
+      'Deixa eu explicar melhor! 🤖 O que especificamente não ficou claro?',
+      'Sem problemas! Vou detalhar mais. Sobre qual parte você tem dúvida?',
+      'Ah, vou esclarecer! 😊 Me diz onde posso ser mais específico.',
+      'Tranquilo! 🚀 Vamos por partes. O que você gostaria que eu explicasse?'
+    ];
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+
+  return null; // Não é uma resposta conversacional natural
 }
 
 async function generateClarifyingQuestions(mensagem, ctx) {
@@ -185,6 +337,9 @@ Responda objetivamente com achados, melhorias e próximos passos. Seja claro.`;
   return { resposta, detalhes };
 }
 
+// Instância global do sistema de consciência contextual
+const contextAwareness = new ContextAwareness();
+
 export async function processMessageStream(mensagem, estado, arvore, res) {
   emitThought(res, "Coletando contexto do projeto", "running");
   const ctx = await collectContext(estado, arvore);
@@ -194,8 +349,26 @@ export async function processMessageStream(mensagem, estado, arvore, res) {
     `Arquivos conhecidos: ${ctx.files.length}`,
   ]);
 
+  // Análise de consciência contextual
+  emitThought(res, "Analisando consciência contextual", "running");
+  const contextAnalysis = contextAwareness.analyzeContext(mensagem, ctx.conversas, {
+    files: ctx.files,
+    packageJson: estado.packageJson
+  });
+  emitThought(res, "Analisando consciência contextual", "completed", [
+    `Estilo de resposta: ${contextAnalysis.behaviorAdjustments.responseStyle}`,
+    `Nível de detalhe: ${contextAnalysis.behaviorAdjustments.detailLevel}`,
+    `Proatividade: ${contextAnalysis.behaviorAdjustments.proactivity}`,
+    `Formalidade: ${contextAnalysis.behaviorAdjustments.formality}`
+  ]);
+
   emitThought(res, "Analisando intenção e definindo plano", "running");
   const intent = await analyzeIntent(mensagem, ctx);
+  
+  // Aplicar ajustes comportamentais baseados na consciência contextual
+  intent.behaviorAdjustments = contextAnalysis.behaviorAdjustments;
+  intent.contextRecommendations = contextAnalysis.recommendations;
+  
   emitThought(res, "Analisando intenção e definindo plano", "completed", intent.plan || []);
 
   // Se precisar de perguntas de esclarecimento
@@ -216,7 +389,7 @@ export async function processMessageStream(mensagem, estado, arvore, res) {
 
   if (intent.kind === "chat") {
     emitThought(res, "Gerando resposta contextual", "running");
-    const resposta = await answerChat(mensagem, ctx);
+    const resposta = await answerChat(mensagem, ctx, contextAnalysis.behaviorAdjustments);
     salvarConversa(estado.projetoId, mensagem, resposta);
     emitThought(res, "Gerando resposta contextual", "completed");
     emitComplete(res, { resposta, mudancas: [] });
